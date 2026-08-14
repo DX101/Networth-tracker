@@ -1,0 +1,9 @@
+node_modules/
+client/dist/
+release/
+release-*/
+*.db
+*.log
+.env
+.env.*
+!/.env.example
