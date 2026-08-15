@@ -1051,18 +1051,53 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       </div>
 
       {activeTab === 'general' && (
-        <div className="settings-grid">
-          <label>Currency
-            <select value={settings.currency || 'INR'} onChange={e => setSettings({ ...settings, currency: e.target.value })}>
-              {Object.keys(CURRENCIES).map(c => <option key={c} value={c}>{c} ({CURRENCIES[c]})</option>)}
-            </select>
-          </label>
-          <label>Date Format
-            <select value={settings.date_format || DATE_FORMATS[0]} onChange={e => setSettings({ ...settings, date_format: e.target.value })}>
-              {DATE_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </label>
-        </div>
+        <>
+          <div className="settings-grid">
+            <label>Currency
+              <select value={settings.currency || 'INR'} onChange={e => setSettings({ ...settings, currency: e.target.value })}>
+                {Object.keys(CURRENCIES).map(c => <option key={c} value={c}>{c} ({CURRENCIES[c]})</option>)}
+              </select>
+            </label>
+            <label>Date Format
+              <select value={settings.date_format || DATE_FORMATS[0]} onChange={e => setSettings({ ...settings, date_format: e.target.value })}>
+                {DATE_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </label>
+          </div>
+          
+          <div className="app-info-section" style={{ marginTop: '40px', padding: '25px', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              About NetWorth Tracker
+            </h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
+              <div>
+                <h4 style={{ color: '#94a3b8', marginBottom: '10px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Core Features</h4>
+                <ul style={{ paddingLeft: '20px', margin: 0, color: '#e2e8f0', lineHeight: '1.6', fontSize: '15px' }}>
+                  <li>Comprehensive Dashboard & Net Worth Tracking</li>
+                  <li>Multi-Currency Asset & Liability Management</li>
+                  <li>Monthly Cashflow & Budget Analysis</li>
+                  <li>Investment Portfolio Tracking with Live Prices</li>
+                  <li>Financial Independence (FIRE) & Debt Planners</li>
+                  <li>Subscription Management & Reminders</li>
+                  <li>Secure Local Database & Background Auto-Updates</li>
+                </ul>
+              </div>
+              
+              <div>
+                <h4 style={{ color: '#94a3b8', marginBottom: '10px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message from the Developer</h4>
+                <div style={{ padding: '15px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', borderLeft: '4px solid #10b981', color: '#e2e8f0', fontStyle: 'italic', lineHeight: '1.6', fontSize: '15px' }}>
+                  "Thank you for using NetWorth Tracker! This tool was built with privacy and financial empowerment in mind. Your financial data stays 100% locally on your machine. I hope this application helps you take full control of your financial journey and achieve your goals. Happy tracking!"
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              Version 2.1.0 • Built with ❤️
+            </div>
+          </div>
+        </>
       )}
 
       {activeTab === 'categories' && (
