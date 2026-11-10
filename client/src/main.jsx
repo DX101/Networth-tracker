@@ -980,6 +980,17 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [fetchingRates, setFetchingRates] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  useEffect(() => {
+    if (window.electronAPI?.onUpdateStatus) {
+      return window.electronAPI.onUpdateStatus((info) => {
+        setUpdateStatus(info);
+        setCheckingUpdate(false);
+      });
+    }
+  }, []);
 
   async function fetchLiveRates() {
     setFetchingRates(true);
@@ -1103,8 +1114,62 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
               </div>
             </div>
             
-            <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
-              Version 2.2.1 • Built with ❤️
+            <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
+              <div style={{ color: '#64748b', fontSize: '13px' }}>
+                Version 2.2.2 • Built with ❤️
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {updateStatus?.status === 'downloaded' && (
+                  <button 
+                    style={{ background: '#10b981', color: '#fff', fontSize: '13px', padding: '6px 14px', borderRadius: '6px', fontWeight: 'bold' }}
+                    onClick={() => window.electronAPI?.restartAndInstall()}
+                  >
+                    Update Ready! Restart Now
+                  </button>
+                )}
+                {updateStatus?.status === 'downloading' && (
+                  <span style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 'bold' }}>
+                    Downloading update ({updateStatus.percent || 0}%)...
+                  </span>
+                )}
+                {updateStatus?.status === 'available' && (
+                  <span style={{ color: '#f59e0b', fontSize: '13px', fontWeight: 'bold' }}>
+                    New update found (v{updateStatus.version})! Downloading...
+                  </span>
+                )}
+                {updateStatus?.status === 'latest' && (
+                  <span style={{ color: '#10b981', fontSize: '13px', fontWeight: 'bold' }}>
+                    ✓ You are on the latest version
+                  </span>
+                )}
+                {updateStatus?.status === 'error' && (
+                  <span style={{ color: '#ef4444', fontSize: '13px' }}>
+                    Check failed: {updateStatus.error || 'Server error'}
+                  </span>
+                )}
+                <button 
+                  className="secondary" 
+                  style={{ fontSize: '13px', padding: '6px 12px' }}
+                  disabled={checkingUpdate || updateStatus?.status === 'downloading'}
+                  onClick={async () => {
+                    if (!window.electronAPI?.checkForUpdates) {
+                      alert('Manual update checks are only available inside the installed desktop application.');
+                      return;
+                    }
+                    setCheckingUpdate(true);
+                    setUpdateStatus({ status: 'checking' });
+                    try {
+                      await window.electronAPI.checkForUpdates();
+                    } catch (e) {
+                      setUpdateStatus({ status: 'error', error: e.message });
+                    } finally {
+                      setCheckingUpdate(false);
+                    }
+                  }}
+                >
+                  {checkingUpdate || updateStatus?.status === 'checking' ? 'Checking...' : 'Check for Updates'}
+                </button>
+              </div>
             </div>
           </div>
         </>
