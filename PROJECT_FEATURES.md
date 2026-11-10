@@ -60,9 +60,13 @@ This document compiles all the features and capabilities developed for the NetWo
 *   **FIRE Calculator:** Model your projected net worth 10-20 years into the future based on your current savings and ROI.
 *   **Retirement Modeling:** Determines what age you can theoretically retire based on safe withdrawal rates.
 
-## 13. Debt Payoff Planner
+## 13. Debt Payoff Planner & Loan Management
 *   **Strategy Simulator:** Compare Avalanche (highest interest) and Snowball (lowest balance) payoff methods.
 *   **Timeline:** Visual charts and exact payoff dates calculated for your liabilities.
+*   **Active Loan Schedules:** Track total remaining EMIs, loan maturity date, and monthly EMI due day.
+*   **Monthly EMI Confirmation:** Interactive "Pay EMI" workflow calculating monthly interest vs. principal repayment, automatically reducing the liability balance, decrementing remaining EMIs, and syncing payments with Cashflow expenses.
+*   **Loan Foreclosure & Prepayment:** Settle or close debts early with optional prepayment charges and Cashflow ledger recording.
+*   **Direct Debt Management:** Add and edit debts/loans directly inside the Debt Planner without switching pages.
 
 ## 14. Bulk Imports
 *   **CSV Import:** Upload bank statement CSVs with a dynamic column mapping tool for instant bulk Cashflow entry.

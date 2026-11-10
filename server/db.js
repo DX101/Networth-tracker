@@ -318,6 +318,10 @@ function ensureLiabilityColumns(db) {
   if (!columns.includes('interest_rate')) db.exec("ALTER TABLE liabilities ADD COLUMN interest_rate REAL DEFAULT NULL");
   if (!columns.includes('minimum_payment')) db.exec("ALTER TABLE liabilities ADD COLUMN minimum_payment REAL DEFAULT NULL");
   if (!columns.includes('currency')) db.exec("ALTER TABLE liabilities ADD COLUMN currency TEXT DEFAULT NULL");
+  if (!columns.includes('total_emis')) db.exec("ALTER TABLE liabilities ADD COLUMN total_emis INTEGER DEFAULT NULL");
+  if (!columns.includes('remaining_emis')) db.exec("ALTER TABLE liabilities ADD COLUMN remaining_emis INTEGER DEFAULT NULL");
+  if (!columns.includes('maturity_date')) db.exec("ALTER TABLE liabilities ADD COLUMN maturity_date TEXT DEFAULT NULL");
+  if (!columns.includes('emi_day')) db.exec("ALTER TABLE liabilities ADD COLUMN emi_day INTEGER DEFAULT NULL");
 }
 
 function ensureGoalColumns(db) {

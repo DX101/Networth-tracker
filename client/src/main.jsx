@@ -1116,7 +1116,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.2.2 • Built with ❤️
+                Version 2.2.3 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -1994,13 +1994,209 @@ function Projections({ settings }) {
   );
 }
 
-function DebtPlanner({ settings }) {
+function PayEmiModal({ liability, settings, onCancel, onConfirm }) {
+  const [amount, setAmount] = useState(liability.minimum_payment || '');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [syncCashflow, setSyncCashflow] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const balance = Number(liability.current_value) || 0;
+  const rate = Number(liability.interest_rate) || 0;
+  const emi = Number(amount) || 0;
+  const monthlyInterest = Math.round((balance * (rate / 100 / 12)) * 100) / 100;
+  const principal = Math.max(0, Math.round((emi - monthlyInterest) * 100) / 100);
+  const newBalance = Math.max(0, Math.round((balance - principal) * 100) / 100);
+  const remainingEmis = liability.remaining_emis !== null && liability.remaining_emis !== undefined 
+    ? Math.max(0, Number(liability.remaining_emis) - 1) 
+    : null;
+
+  async function submit(e) {
+    e.preventDefault();
+    if (emi <= 0) {
+      setError('Please enter a valid EMI amount.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onConfirm({ amount: emi, date, syncCashflow });
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal" onSubmit={submit} style={{ maxWidth: '520px' }}>
+        <h2>Confirm Monthly EMI • {liability.name}</h2>
+        {error && <div className="error">{error}</div>}
+
+        <div style={{ background: '#0f172a', padding: '16px', borderRadius: '10px', border: '1px solid #334155', marginBottom: '18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+            <span style={{ color: '#94a3b8' }}>Current Outstanding Balance:</span>
+            <strong>{money(balance, settings)}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+            <span style={{ color: '#f43f5e' }}>Interest Fee ({rate}% APR):</span>
+            <span style={{ color: '#f43f5e' }}>- {money(monthlyInterest, settings)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+            <span style={{ color: '#10b981' }}>Principal Reduced:</span>
+            <span style={{ color: '#10b981', fontWeight: 'bold' }}>{money(principal, settings)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '10px', marginTop: '6px', borderTop: '1px solid #334155', fontSize: '15px' }}>
+            <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>New Balance After Payment:</span>
+            <strong style={{ color: '#38bdf8', fontSize: '17px' }}>{money(newBalance, settings)}</strong>
+          </div>
+          {remainingEmis !== null && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '13px', color: '#94a3b8' }}>
+              <span>Remaining EMIs Countdown:</span>
+              <strong style={{ color: '#10b981' }}>{remainingEmis} EMIs left</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="form-grid">
+          <label>Monthly EMI Amount
+            <input type="number" step="any" value={amount} onChange={e => setAmount(e.target.value)} required />
+          </label>
+          <label>Payment Date
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </label>
+          <label style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={syncCashflow} 
+              onChange={e => setSyncCashflow(e.target.checked)} 
+              style={{ width: 'auto', margin: 0 }} 
+            />
+            <span style={{ fontSize: '14px', color: '#e2e8f0' }}>
+              Also record in Cashflow as expense (Category: EMI/Loan Payments)
+            </span>
+          </label>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" style={{ background: '#10b981', borderColor: '#10b981', color: '#fff' }} disabled={saving}>
+            {saving ? 'Processing...' : 'Confirm EMI Payment'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ForecloseModal({ liability, settings, onCancel, onConfirm }) {
+  const [amount, setAmount] = useState(liability.current_value || '');
+  const [charges, setCharges] = useState(0);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [syncCashflow, setSyncCashflow] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const balance = Number(liability.current_value) || 0;
+  const payoff = Number(amount) || 0;
+  const extraFee = Number(charges) || 0;
+  const total = payoff + extraFee;
+
+  async function submit(e) {
+    e.preventDefault();
+    if (payoff <= 0) {
+      setError('Please enter a valid payoff amount.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onConfirm({ amount: payoff, charges: extraFee, date, syncCashflow });
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal" onSubmit={submit} style={{ maxWidth: '520px' }}>
+        <h2>Foreclose / Settle Loan • {liability.name}</h2>
+        {error && <div className="error">{error}</div>}
+
+        <div style={{ background: '#0f172a', padding: '16px', borderRadius: '10px', border: '1px solid #334155', marginBottom: '18px' }}>
+          <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#94a3b8' }}>
+            Foreclosing will settle the remaining balance and close this loan completely, marking the debt as fully paid.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '14px' }}>
+            <span style={{ color: '#94a3b8' }}>Outstanding Balance:</span>
+            <strong>{money(balance, settings)}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '14px' }}>
+            <span style={{ color: '#94a3b8' }}>Foreclosure Charges / Fees:</span>
+            <span>{money(extraFee, settings)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '10px', marginTop: '6px', borderTop: '1px solid #334155', fontSize: '15px' }}>
+            <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>Total Settlement Outflow:</span>
+            <strong style={{ color: '#38bdf8', fontSize: '17px' }}>{money(total, settings)}</strong>
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <label>Settlement Principal Amount
+            <input type="number" step="any" value={amount} onChange={e => setAmount(e.target.value)} required />
+          </label>
+          <label>Bank Foreclosure Charges (if any)
+            <input type="number" step="any" value={charges} onChange={e => setCharges(e.target.value)} />
+          </label>
+          <label>Foreclosure Date
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </label>
+          <label style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={syncCashflow} 
+              onChange={e => setSyncCashflow(e.target.checked)} 
+              style={{ width: 'auto', margin: 0 }} 
+            />
+            <span style={{ fontSize: '14px', color: '#e2e8f0' }}>
+              Also log as Expense in Cashflow (Category: EMI/Loan Payments)
+            </span>
+          </label>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="danger" disabled={saving}>
+            {saving ? 'Processing...' : 'Confirm Loan Foreclosure'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DebtPlanner({ settings, categories }) {
   const [liabilities, setLiabilities] = useState([]);
   const [strategy, setStrategy] = useState('avalanche');
   const [extraPayment, setExtraPayment] = useState(100);
+  const [payingDebt, setPayingDebt] = useState(null);
+  const [foreclosingDebt, setForeclosingDebt] = useState(null);
+  const [editingDebt, setEditingDebt] = useState(null);
+  const [addingDebt, setAddingDebt] = useState(false);
+  const [notification, setNotification] = useState('');
+
+  const loadDebts = async () => {
+    try {
+      const data = await api('/liabilities');
+      setLiabilities(data.filter(l => Number(l.current_value) > 0));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
-    api('/liabilities').then(data => setLiabilities(data.filter(l => Number(l.current_value) > 0)));
+    loadDebts();
   }, []);
 
   const calculatePayoff = () => {
@@ -2067,14 +2263,120 @@ function DebtPlanner({ settings }) {
   const results = calculatePayoff();
   const totalDebt = liabilities.reduce((sum, l) => sum + convertValue(l.current_value, l.currency, settings), 0);
 
+  const debtFields = [
+    { name: 'name', label: 'Loan / Debt Name' },
+    { name: 'category', label: 'Category', type: 'select', options: (categories?.liability || ['Personal Loan', 'Home Loan', 'Car Loan', 'Credit Card', 'Other Debt']) },
+    { name: 'current_value', label: 'Principal Balance', type: 'number' },
+    { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
+    { name: 'interest_rate', label: 'Interest Rate (%)', type: 'number' },
+    { name: 'minimum_payment', label: 'Monthly EMI Amount', type: 'number' },
+    { name: 'emi_day', label: 'Monthly EMI Due Day (1-31)', type: 'number' },
+    { name: 'remaining_emis', label: 'Total Remaining EMIs', type: 'number' },
+    { name: 'maturity_date', label: 'Loan Ending / Maturity Date', type: 'date' },
+    { name: 'notes', label: 'Notes' }
+  ];
+
   return (
     <section className="page">
-      <div className="overview-head">
+      <div className="overview-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <h1>Debt Payoff Planner</h1>
-          <p>Find the fastest way out of debt using Snowball or Avalanche strategies.</p>
+          <p>Manage your active loans, track EMI schedules, and project debt-free timelines.</p>
         </div>
+        <button className="primary" onClick={() => setAddingDebt(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add New Debt / Loan
+        </button>
       </div>
+
+      {notification && (
+        <div style={{ padding: '12px 18px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>✓ {notification}</span>
+          <button style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: '18px', padding: 0 }} onClick={() => setNotification('')}>×</button>
+        </div>
+      )}
+
+      {liabilities.length > 0 && (
+        <div style={{ marginBottom: '30px' }}>
+          <h3 style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span>Active Loans & EMI Schedule</span>
+            <span style={{ fontSize: '12px', background: '#334155', color: '#94a3b8', padding: '2px 8px', borderRadius: '12px' }}>{liabilities.length} active</span>
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '18px' }}>
+            {liabilities.map(debt => (
+              <div key={debt.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '18px', color: '#f8fafc' }}>{debt.name}</h4>
+                      <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{debt.category}</span>
+                    </div>
+                    <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#ef4444' }}>
+                      {money(debt.current_value, { ...settings, currency: debt.currency || settings.currency })}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Monthly EMI</span>
+                      <strong style={{ color: '#38bdf8', fontSize: '14px' }}>
+                        {debt.minimum_payment ? money(debt.minimum_payment, { ...settings, currency: debt.currency || settings.currency }) : '-'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Interest Rate</span>
+                      <strong style={{ color: '#f59e0b', fontSize: '14px' }}>
+                        {debt.interest_rate ? `${debt.interest_rate}% p.a.` : '-'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>EMI Due Day</span>
+                      <strong style={{ color: '#e2e8f0' }}>
+                        {debt.emi_day ? `${debt.emi_day}th of month` : '-'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Remaining EMIs</span>
+                      <strong style={{ color: '#10b981' }}>
+                        {debt.remaining_emis !== null && debt.remaining_emis !== undefined ? `${debt.remaining_emis} EMIs left` : '-'}
+                      </strong>
+                    </div>
+                    {debt.maturity_date && (
+                      <div style={{ gridColumn: 'span 2', paddingTop: '6px', borderTop: '1px solid #1e293b' }}>
+                        <span style={{ color: '#64748b', display: 'block' }}>Loan Ending / Maturity Date</span>
+                        <strong style={{ color: '#e2e8f0' }}>{formatDate(debt.maturity_date, settings)}</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid #1e293b' }}>
+                  <button 
+                    style={{ background: '#10b981', borderColor: '#10b981', color: '#fff', fontSize: '13px', padding: '6px 14px', flex: 1, fontWeight: 'bold' }}
+                    onClick={() => setPayingDebt(debt)}
+                  >
+                    ✓ Pay EMI
+                  </button>
+                  <button 
+                    className="secondary"
+                    style={{ fontSize: '13px', padding: '6px 12px' }}
+                    onClick={() => setForeclosingDebt(debt)}
+                  >
+                    Foreclose
+                  </button>
+                  <button 
+                    className="secondary"
+                    style={{ fontSize: '13px', padding: '6px 10px' }}
+                    onClick={() => setEditingDebt(debt)}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="budget-layout">
         <Chart title="Debt Payoff Timeline" height={400}>
@@ -2123,12 +2425,76 @@ function DebtPlanner({ settings }) {
               <input type="number" value={extraPayment} onChange={e => setExtraPayment(Number(e.target.value))} />
             </label>
           </div>
-          
-          <p className="muted" style={{ marginTop: '15px', fontSize: '13px' }}>
-            Note: Update your Liabilities' interest rates and minimum payments in the 'Liabilities' tab for accurate calculations.
-          </p>
         </div>
       </div>
+
+      {payingDebt && (
+        <PayEmiModal 
+          liability={payingDebt}
+          settings={settings}
+          onCancel={() => setPayingDebt(null)}
+          onConfirm={async (payload) => {
+            const res = await api(`/liabilities/${payingDebt.id}/pay-emi`, {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            setPayingDebt(null);
+            await loadDebts();
+            setNotification(`EMI paid for ${payingDebt.name}! Principal reduced by ${money(res.breakdown.principalPaid, settings)}. New balance: ${money(res.breakdown.newBalance, settings)}.`);
+            setTimeout(() => setNotification(''), 6000);
+          }}
+        />
+      )}
+
+      {foreclosingDebt && (
+        <ForecloseModal
+          liability={foreclosingDebt}
+          settings={settings}
+          onCancel={() => setForeclosingDebt(null)}
+          onConfirm={async (payload) => {
+            await api(`/liabilities/${foreclosingDebt.id}/foreclose`, {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            setForeclosingDebt(null);
+            await loadDebts();
+            setNotification(`Loan "${foreclosingDebt.name}" foreclosed and closed successfully! Total paid: ${money(payload.amount + (payload.charges || 0), settings)}.`);
+            setTimeout(() => setNotification(''), 6000);
+          }}
+        />
+      )}
+
+      {addingDebt && (
+        <Modal
+          title="Add New Debt / Loan"
+          fields={debtFields}
+          initial={{ category: 'Personal Loan', currency: settings.currency || 'INR', emi_day: 5 }}
+          onCancel={() => setAddingDebt(false)}
+          onSave={async (form) => {
+            await api('/liabilities', { method: 'POST', body: JSON.stringify(form) });
+            setAddingDebt(false);
+            await loadDebts();
+            setNotification(`Added loan "${form.name}" successfully!`);
+            setTimeout(() => setNotification(''), 4000);
+          }}
+        />
+      )}
+
+      {editingDebt && (
+        <Modal
+          title={`Edit ${editingDebt.name}`}
+          fields={debtFields}
+          initial={editingDebt}
+          onCancel={() => setEditingDebt(null)}
+          onSave={async (form) => {
+            await api(`/liabilities/${editingDebt.id}`, { method: 'PUT', body: JSON.stringify(form) });
+            setEditingDebt(null);
+            await loadDebts();
+            setNotification(`Updated "${form.name}" successfully!`);
+            setTimeout(() => setNotification(''), 4000);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -2440,14 +2806,20 @@ function App() {
         { name: 'current_value', label: 'Current Value', type: 'number' },
         { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
         { name: 'interest_rate', label: 'Interest Rate (%)', type: 'number' },
-        { name: 'minimum_payment', label: 'Min Payment', type: 'number' },
-        { name: 'date_added', label: 'Date', type: 'date' }, { name: 'notes', label: 'Notes' }
+        { name: 'minimum_payment', label: 'Monthly EMI Amount', type: 'number' },
+        { name: 'emi_day', label: 'Monthly EMI Due Day (1-31)', type: 'number' },
+        { name: 'remaining_emis', label: 'Total Remaining EMIs', type: 'number' },
+        { name: 'maturity_date', label: 'Loan Ending / Maturity Date', type: 'date' },
+        { name: 'date_added', label: 'Date Added', type: 'date' }, { name: 'notes', label: 'Notes' }
       ]}
       columns={(s) => [
         { key: 'name', label: 'Name' }, { key: 'category', label: 'Category' },
         { key: 'current_value', label: 'Balance', render: (r) => money(r.current_value, { ...s, currency: r.currency || s.currency }) },
         { key: 'interest_rate', label: 'Rate', render: (r) => r.interest_rate ? `${r.interest_rate}%` : '-' },
-        { key: 'minimum_payment', label: 'Min Pmt', render: (r) => money(r.minimum_payment || 0, s) },
+        { key: 'minimum_payment', label: 'EMI', render: (r) => money(r.minimum_payment || 0, s) },
+        { key: 'emi_day', label: 'Due Day', render: (r) => r.emi_day ? `${r.emi_day}th` : '-' },
+        { key: 'remaining_emis', label: 'Remaining', render: (r) => r.remaining_emis !== null && r.remaining_emis !== undefined ? `${r.remaining_emis} EMIs` : '-' },
+        { key: 'maturity_date', label: 'Ending Date', render: (r) => r.maturity_date ? formatDate(r.maturity_date, s) : '-' },
       ]}
       performance={{ title: 'Liability Trend', type: 'line', series: [{ key: 'total_liabilities', label: 'Total Liabilities', color: '#ef4444', getValue: (r) => Number(r.current_value || 0) }] }}
     />,
@@ -2478,7 +2850,7 @@ function App() {
     budgets: <BudgetPlanner settings={s} />,
     goals: <Goals settings={s} />,
     projections: <Projections settings={s} />,
-    debtplanner: <DebtPlanner settings={s} />,
+    debtplanner: <DebtPlanner settings={s} categories={categories} />,
     subscriptions: <Subscriptions settings={s} categories={categories} />,
     history: <History settings={s} />,
     settings: <Settings settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} onLogout={logout} />,
