@@ -300,6 +300,12 @@ function ensureSettingsColumns(db) {
   if (!columns.includes('app_name')) db.exec("ALTER TABLE settings ADD COLUMN app_name TEXT DEFAULT 'Net Worth Tracker'");
   if (!columns.includes('dashboard_layout')) db.exec("ALTER TABLE settings ADD COLUMN dashboard_layout TEXT DEFAULT NULL");
   if (!columns.includes('exchange_rates')) db.exec("ALTER TABLE settings ADD COLUMN exchange_rates TEXT DEFAULT NULL");
+  if (!columns.includes('gdrive_client_id')) db.exec("ALTER TABLE settings ADD COLUMN gdrive_client_id TEXT DEFAULT NULL");
+  if (!columns.includes('gdrive_client_secret')) db.exec("ALTER TABLE settings ADD COLUMN gdrive_client_secret TEXT DEFAULT NULL");
+  if (!columns.includes('gdrive_refresh_token')) db.exec("ALTER TABLE settings ADD COLUMN gdrive_refresh_token TEXT DEFAULT NULL");
+  if (!columns.includes('dropbox_client_id')) db.exec("ALTER TABLE settings ADD COLUMN dropbox_client_id TEXT DEFAULT NULL");
+  if (!columns.includes('dropbox_client_secret')) db.exec("ALTER TABLE settings ADD COLUMN dropbox_client_secret TEXT DEFAULT NULL");
+  if (!columns.includes('dropbox_refresh_token')) db.exec("ALTER TABLE settings ADD COLUMN dropbox_refresh_token TEXT DEFAULT NULL");
 }
 
 function ensureAssetColumns(db) {
@@ -378,4 +384,4 @@ function seedDefaultCategories(db) {
     '10 asset, 5 liability, 7 income, 12 expense, 8 investment');
 }
 
-module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns };
+module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns, DB_PATH };

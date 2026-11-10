@@ -17,6 +17,7 @@ const budgetsRoutes = require('./routes/budgets');
 const authRoutes = require('./routes/auth');
 const goalsRoutes = require('./routes/goals');
 const subscriptionsRoutes = require('./routes/subscriptions');
+const backupRoutes = require('./routes/backup');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,6 +45,7 @@ app.use('/api/categories', authMiddleware, categoriesRoutes);
 app.use('/api/budgets', authMiddleware, budgetsRoutes);
 app.use('/api/goals', authMiddleware, goalsRoutes);
 app.use('/api/subscriptions', authMiddleware, subscriptionsRoutes);
+app.use('/api/backup', backupRoutes);
 
 // Serve static client build in production
 const clientBuildPath = CLIENT_BUILD_PATH;

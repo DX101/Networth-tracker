@@ -55,12 +55,12 @@ router.get('/live-rates', async (req, res) => {
 router.put('/', (req, res) => {
   try {
     const db = getDb();
-    const { currency, currency_symbol, date_format, app_name, dashboard_layout, exchange_rates, categories } = req.body;
+    const { currency, currency_symbol, date_format, app_name, dashboard_layout, exchange_rates, categories, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token } = req.body;
     
     // Update settings
     const existing = db.prepare('SELECT * FROM settings WHERE id = 1').get();
     const stmt = db.prepare(
-      'UPDATE settings SET currency=?, currency_symbol=?, date_format=?, app_name=?, dashboard_layout=?, exchange_rates=? WHERE id=1'
+      'UPDATE settings SET currency=?, currency_symbol=?, date_format=?, app_name=?, dashboard_layout=?, exchange_rates=?, gdrive_client_id=?, gdrive_client_secret=?, gdrive_refresh_token=?, dropbox_client_id=?, dropbox_client_secret=?, dropbox_refresh_token=? WHERE id=1'
     );
     stmt.run(
       currency ?? existing.currency,
@@ -68,7 +68,13 @@ router.put('/', (req, res) => {
       date_format ?? existing.date_format,
       app_name ?? existing.app_name,
       dashboard_layout ?? existing.dashboard_layout,
-      exchange_rates ?? existing.exchange_rates
+      exchange_rates ?? existing.exchange_rates,
+      gdrive_client_id !== undefined ? gdrive_client_id : existing.gdrive_client_id,
+      gdrive_client_secret !== undefined ? gdrive_client_secret : existing.gdrive_client_secret,
+      gdrive_refresh_token !== undefined ? gdrive_refresh_token : existing.gdrive_refresh_token,
+      dropbox_client_id !== undefined ? dropbox_client_id : existing.dropbox_client_id,
+      dropbox_client_secret !== undefined ? dropbox_client_secret : existing.dropbox_client_secret,
+      dropbox_refresh_token !== undefined ? dropbox_refresh_token : existing.dropbox_refresh_token
     );
 
     // If categories object is provided, completely overwrite the categories table

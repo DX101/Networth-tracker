@@ -30,13 +30,13 @@ router.get('/:id', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = getDb();
-    const { name, category, current_value, date_added, notes } = req.body;
+    const { name, category, current_value, currency, date_added, notes } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Asset name is required' });
     if (!category || !String(category).trim()) return res.status(400).json({ error: 'Asset category is required' });
     const stmt = db.prepare(
-      'INSERT INTO assets (name, category, current_value, date_added, notes) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO assets (name, category, current_value, currency, date_added, notes) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(name, category, current_value || 0, date_added || new Date().toISOString().split('T')[0], notes || '');
+    const result = stmt.run(name, category, current_value || 0, currency || null, date_added || new Date().toISOString().split('T')[0], notes || '');
     await takeSnapshot();
     const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(asset);
@@ -49,18 +49,19 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const { name, category, current_value, date_added, notes } = req.body;
+    const { name, category, current_value, currency, date_added, notes } = req.body;
     if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Asset name cannot be empty' });
     if (category !== undefined && !String(category).trim()) return res.status(400).json({ error: 'Asset category cannot be empty' });
     const existing = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Asset not found' });
     const stmt = db.prepare(
-      "UPDATE assets SET name=?, category=?, current_value=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=?"
+      "UPDATE assets SET name=?, category=?, current_value=?, currency=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=?"
     );
     stmt.run(
       name ?? existing.name,
       category ?? existing.category,
-      current_value ?? existing.current_value,
+      current_value !== undefined ? (Number(current_value) || 0) : existing.current_value,
+      currency !== undefined ? (currency || null) : existing.currency,
       date_added ?? existing.date_added,
       notes ?? existing.notes,
       req.params.id

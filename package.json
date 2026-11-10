@@ -1,6 +1,6 @@
 {
   "name": "networth-tracker-v2",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "NetWorth Tracker v2 - v1 feature-parity rebuild",
   "private": true,
   "main": "electron/main.js",
@@ -19,8 +19,10 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "dropbox": "^10.46.0",
     "electron-updater": "^6.8.9",
     "express": "^4.21.0",
+    "googleapis": "^181.0.0",
     "html2pdf.js": "^0.14.0",
     "jsonwebtoken": "^9.0.3",
     "react": "latest",
@@ -60,7 +62,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "NetWorth Tracker Setup 2.2.0.exe"
+      "artifactName": "NetWorth Tracker Setup 2.2.1.exe"
     }
   }
 }

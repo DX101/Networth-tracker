@@ -917,9 +917,19 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
         };
 
         const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart', 'recent_transactions'];
-        let currentLayout = defaultLayout;
+        let currentLayout = [...defaultLayout];
         try { if (settings.dashboard_layout) currentLayout = JSON.parse(settings.dashboard_layout); } catch(e) {}
-        // Backfill any new widgets that are missing from a saved layout
+        
+        // Ensure breakdown is ALWAYS right after stats (visually it drops down from the cards)
+        currentLayout = currentLayout.filter(k => k !== 'breakdown');
+        const statsIdx = currentLayout.indexOf('stats');
+        if (statsIdx !== -1) {
+          currentLayout.splice(statsIdx + 1, 0, 'breakdown');
+        } else {
+          currentLayout.unshift('breakdown');
+        }
+        
+        // Backfill any other missing widgets
         const activeSet = new Set(currentLayout);
         defaultLayout.forEach(k => { if (!activeSet.has(k)) currentLayout.push(k); });
 
@@ -1043,7 +1053,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       {error && <div className="error">{error}</div>}
 
       <div className="settings-tabs">
-        {['general', 'dashboard_layout', 'categories', 'exchange_rates'].map(t => (
+        {['general', 'dashboard_layout', 'categories', 'exchange_rates', 'cloud_backups'].map(t => (
           <button key={t} className={`pill ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
             {t.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
           </button>
@@ -1094,10 +1104,81 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             </div>
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
-              Version 2.1.0 • Built with ❤️
+              Version 2.2.1 • Built with ❤️
             </div>
           </div>
         </>
+      )}
+
+      {activeTab === 'cloud_backups' && (
+        <div className="settings-grid" style={{ gridTemplateColumns: '1fr', gap: '20px' }}>
+          <h3>Cloud Integrations</h3>
+          <p className="muted">Connect your Google Drive or Dropbox to safely backup your database.</p>
+          
+          <div className="card" style={{ padding: '20px' }}>
+            <h4>Google Drive</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '10px' }}>
+              <label>Client ID
+                <input type="text" value={settings.gdrive_client_id || ''} onChange={e => setSettings({ ...settings, gdrive_client_id: e.target.value })} placeholder="Enter Google Client ID" />
+              </label>
+              <label>Client Secret
+                <input type="password" value={settings.gdrive_client_secret || ''} onChange={e => setSettings({ ...settings, gdrive_client_secret: e.target.value })} placeholder="Enter Google Client Secret" />
+              </label>
+            </div>
+            <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <button className="secondary" onClick={async () => {
+                await saveSettings();
+                const res = await api('/backup/auth/google');
+                if (res.url) window.open(res.url, '_blank');
+              }}>Connect Google Drive</button>
+              {settings.gdrive_refresh_token && (
+                <>
+                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Connected</span>
+                  <button onClick={async () => {
+                    const res = await api('/backup/upload/google', { method: 'POST' });
+                    if (res.success) alert('Backup successful!');
+                  }}>Backup Now</button>
+                  <button className="danger" onClick={async () => {
+                    await api('/backup/disconnect/google', { method: 'POST' });
+                    setSettings({ ...settings, gdrive_refresh_token: null });
+                  }}>Disconnect</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '20px' }}>
+            <h4>Dropbox</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '10px' }}>
+              <label>Client ID
+                <input type="text" value={settings.dropbox_client_id || ''} onChange={e => setSettings({ ...settings, dropbox_client_id: e.target.value })} placeholder="Enter Dropbox Client ID" />
+              </label>
+              <label>Client Secret
+                <input type="password" value={settings.dropbox_client_secret || ''} onChange={e => setSettings({ ...settings, dropbox_client_secret: e.target.value })} placeholder="Enter Dropbox Client Secret" />
+              </label>
+            </div>
+            <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <button className="secondary" onClick={async () => {
+                await saveSettings();
+                const res = await api('/backup/auth/dropbox');
+                if (res.url) window.open(res.url, '_blank');
+              }}>Connect Dropbox</button>
+              {settings.dropbox_refresh_token && (
+                <>
+                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Connected</span>
+                  <button onClick={async () => {
+                    const res = await api('/backup/upload/dropbox', { method: 'POST' });
+                    if (res.success) alert('Backup successful! Path: ' + res.path);
+                  }}>Backup Now</button>
+                  <button className="danger" onClick={async () => {
+                    await api('/backup/disconnect/dropbox', { method: 'POST' });
+                    setSettings({ ...settings, dropbox_refresh_token: null });
+                  }}>Disconnect</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {activeTab === 'categories' && (

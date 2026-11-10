@@ -30,13 +30,22 @@ router.get('/:id', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = getDb();
-    const { name, category, current_value, date_added, notes } = req.body;
+    const { name, category, current_value, currency, interest_rate, minimum_payment, date_added, notes } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Liability name is required' });
     if (!category || !String(category).trim()) return res.status(400).json({ error: 'Liability category is required' });
     const stmt = db.prepare(
-      'INSERT INTO liabilities (name, category, current_value, date_added, notes) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO liabilities (name, category, current_value, currency, interest_rate, minimum_payment, date_added, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(name, category, current_value || 0, date_added || new Date().toISOString().split('T')[0], notes || '');
+    const result = stmt.run(
+      name,
+      category,
+      current_value || 0,
+      currency || null,
+      interest_rate !== undefined && interest_rate !== '' && interest_rate !== null ? Number(interest_rate) : null,
+      minimum_payment !== undefined && minimum_payment !== '' && minimum_payment !== null ? Number(minimum_payment) : null,
+      date_added || new Date().toISOString().split('T')[0],
+      notes || ''
+    );
     await takeSnapshot();
     const item = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(item);
@@ -49,18 +58,21 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const { name, category, current_value, date_added, notes } = req.body;
+    const { name, category, current_value, currency, interest_rate, minimum_payment, date_added, notes } = req.body;
     if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Liability name cannot be empty' });
     if (category !== undefined && !String(category).trim()) return res.status(400).json({ error: 'Liability category cannot be empty' });
     const existing = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Liability not found' });
     const stmt = db.prepare(
-      "UPDATE liabilities SET name=?, category=?, current_value=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=?"
+      "UPDATE liabilities SET name=?, category=?, current_value=?, currency=?, interest_rate=?, minimum_payment=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=?"
     );
     stmt.run(
       name ?? existing.name,
       category ?? existing.category,
-      current_value ?? existing.current_value,
+      current_value !== undefined ? (Number(current_value) || 0) : existing.current_value,
+      currency !== undefined ? (currency || null) : existing.currency,
+      interest_rate !== undefined ? (interest_rate !== '' && interest_rate !== null ? Number(interest_rate) : null) : existing.interest_rate,
+      minimum_payment !== undefined ? (minimum_payment !== '' && minimum_payment !== null ? Number(minimum_payment) : null) : existing.minimum_payment,
       date_added ?? existing.date_added,
       notes ?? existing.notes,
       req.params.id
