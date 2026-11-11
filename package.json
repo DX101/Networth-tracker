@@ -65,7 +65,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "NetWorth Tracker Setup 2.3.0.exe"
+      "artifactName": "NetWorth-Tracker-Setup-${version}.${ext}"
     }
   }
 }
