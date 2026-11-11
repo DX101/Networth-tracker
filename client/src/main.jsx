@@ -4,6 +4,14 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, P
 import html2pdf from 'html2pdf.js';
 import './styles.css';
 
+const getApiBase = () => {
+  const custom = typeof window !== 'undefined' ? localStorage.getItem('server_url') : null;
+  if (custom && custom.trim()) {
+    return custom.trim().replace(/\/$/, '') + '/api';
+  }
+  return '/api';
+};
+
 const API = '/api';
 const COLORS = ['#14b8a6', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#10b981', '#f97316'];
 const CURRENCIES = {
@@ -21,7 +29,8 @@ const DEFAULT_CATEGORIES = {
 
 async function api(path, options = {}) {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API}${path}`, {
+  const baseUrl = getApiBase();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
   });
@@ -981,6 +990,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
   const [activeTab, setActiveTab] = useState('general');
   const [catType, setCatType] = useState('asset');
   const [newCat, setNewCat] = useState('');
+  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1088,6 +1098,21 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
               <select value={settings.date_format || DATE_FORMATS[0]} onChange={e => setSettings({ ...settings, date_format: e.target.value })}>
                 {DATE_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
+            </label>
+            <label style={{ gridColumn: 'span 2' }}>Server / API URL (For Android Mobile App & Remote Sync)
+              <input
+                type="text"
+                placeholder="e.g. http://192.168.1.5:3001 or https://your-server.com (Leave blank for local desktop)"
+                value={serverUrl}
+                onChange={e => {
+                  setServerUrl(e.target.value);
+                  if (e.target.value.trim()) localStorage.setItem('server_url', e.target.value.trim());
+                  else localStorage.removeItem('server_url');
+                }}
+              />
+              <small style={{ color: '#64748b', marginTop: '4px', display: 'block' }}>
+                On your Android phone, enter your PC's IP or cloud server URL here so your phone syncs with this system.
+              </small>
             </label>
           </div>
           

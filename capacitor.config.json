@@ -1,0 +1,8 @@
+{
+  "appId": "com.networth.tracker",
+  "appName": "NetWorth Tracker",
+  "webDir": "client/dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
