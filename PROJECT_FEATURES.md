@@ -12,8 +12,11 @@ This document compiles all the features and capabilities developed for the NetWo
 *   **Liabilities:** Track debts and loans (Home Loan, Car Loan, Credit Cards, etc.).
 *   **Historical Trends:** Line and bar charts to visualize asset growth and liability reduction over time.
 
-## 3. Cashflow Tracking
-*   **Income & Expenses:** Record day-to-day income and expenses independently from budgets.
+## 3. Cashflow Tracking & Internal Transfers
+*   **Income & Expenses:** Record day-to-day income and expenses with automatic bank account balance sync.
+*   **Account-Linked Transactions:** Link expenses to a "Paid From" bank account (auto-deducting balance) and income to a "Deposited To" account (auto-crediting balance).
+*   **Internal Account Transfers:** Move money between accounts (e.g. Kotak Bank ➔ Stock Broking Account) with complete audit trail and zero net worth distortion.
+*   **Account Passbook & Statements:** View full chronological transaction statements for any bank account or asset with total inflows, outflows, and net movement.
 *   **Categorization:** Automatically categorize cash flow entries (Salary, Rental, Housing, Utilities, etc.).
 *   **Income vs Expense Chart:** Visual performance graph comparing total income against total expenses.
 
@@ -74,3 +77,9 @@ This document compiles all the features and capabilities developed for the NetWo
 ## 15. Advanced Configuration
 *   **Multi-Currency Support:** Define exchange rates to automatically convert foreign assets to your base dashboard currency.
 *   **Dashboard Layouts:** Fully customize and reorder your dashboard widgets (charts, stats, goals) using the layout manager.
+
+## 16. Insurance & Protection Portfolio
+*   **Comprehensive Policy Tracking:** Manage Term Life Insurance, Endowment policies, ULIPs, Health insurance, and Vehicle policies.
+*   **Coverage & Protection Metrics:** Overview of Total Life Cover (Sum Assured), Total Health Cover, and Total Annual Premium outflows.
+*   **Cash / Surrender Value Accounting:** Cash values for endowment and ULIP policies directly contribute to Total Assets and Net Worth.
+*   **Interactive "Pay Premium" Workflow:** Advance premium due dates by policy frequency and automatically log the payment in Cashflow, deducted from your chosen bank account.

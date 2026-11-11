@@ -128,13 +128,16 @@ function initSchema(db) {
 
     CREATE TABLE IF NOT EXISTS cashflow (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL CHECK(type IN ('income','expense')),
+      type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
       amount REAL NOT NULL DEFAULT 0,
       category TEXT NOT NULL,
       date TEXT NOT NULL DEFAULT (date('now')),
       description TEXT DEFAULT '',
       is_recurring INTEGER DEFAULT 0,
       frequency TEXT DEFAULT NULL,
+      account_id INTEGER DEFAULT NULL,
+      to_account_id INTEGER DEFAULT NULL,
+      adjust_balance INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -253,6 +256,27 @@ function initSchema(db) {
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS insurance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      policy_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      policy_type TEXT NOT NULL,
+      policy_number TEXT DEFAULT '',
+      sum_assured REAL NOT NULL DEFAULT 0,
+      cash_value REAL DEFAULT 0,
+      premium_amount REAL NOT NULL DEFAULT 0,
+      premium_frequency TEXT NOT NULL DEFAULT 'annual',
+      next_due_date TEXT DEFAULT NULL,
+      start_date TEXT DEFAULT NULL,
+      maturity_date TEXT DEFAULT NULL,
+      account_id INTEGER DEFAULT NULL,
+      nominee TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      notes TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
   const exists = db.prepare('SELECT id FROM settings WHERE id = 1').get();
   if (!exists) {
@@ -267,6 +291,8 @@ function initSchema(db) {
   ensureSubscriptionColumns(db);
   ensureAssetColumns(db);
   ensureLiabilityColumns(db);
+  ensureCashflowColumns(db);
+  ensureInsuranceTable(db);
 
   // Auto-seed default categories if none exist (e.g., fresh Electron install)
   const catCount = db.prepare('SELECT COUNT(*) AS cnt FROM categories').get();
@@ -332,6 +358,38 @@ function ensureSubscriptionColumns(db) {
   // Add columns to subscriptions later if needed
 }
 
+function ensureCashflowColumns(db) {
+  const columns = db.prepare('PRAGMA table_info(cashflow)').all().map((column) => column.name);
+  if (!columns.includes('account_id')) db.exec("ALTER TABLE cashflow ADD COLUMN account_id INTEGER DEFAULT NULL");
+  if (!columns.includes('to_account_id')) db.exec("ALTER TABLE cashflow ADD COLUMN to_account_id INTEGER DEFAULT NULL");
+  if (!columns.includes('adjust_balance')) db.exec("ALTER TABLE cashflow ADD COLUMN adjust_balance INTEGER DEFAULT 1");
+}
+
+function ensureInsuranceTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS insurance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      policy_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      policy_type TEXT NOT NULL,
+      policy_number TEXT DEFAULT '',
+      sum_assured REAL NOT NULL DEFAULT 0,
+      cash_value REAL DEFAULT 0,
+      premium_amount REAL NOT NULL DEFAULT 0,
+      premium_frequency TEXT NOT NULL DEFAULT 'annual',
+      next_due_date TEXT DEFAULT NULL,
+      start_date TEXT DEFAULT NULL,
+      maturity_date TEXT DEFAULT NULL,
+      account_id INTEGER DEFAULT NULL,
+      nominee TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      notes TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+}
+
 function seedDefaultCategories(db) {
   const insertCat = (name, type) =>
     db.prepare('INSERT INTO categories (name, type) VALUES (?, ?)').run(name, type);
@@ -388,4 +446,4 @@ function seedDefaultCategories(db) {
     '10 asset, 5 liability, 7 income, 12 expense, 8 investment');
 }
 
-module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns, DB_PATH };
+module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns, ensureCashflowColumns, ensureInsuranceTable, DB_PATH };

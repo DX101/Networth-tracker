@@ -17,6 +17,7 @@ const budgetsRoutes = require('./routes/budgets');
 const authRoutes = require('./routes/auth');
 const goalsRoutes = require('./routes/goals');
 const subscriptionsRoutes = require('./routes/subscriptions');
+const insuranceRoutes = require('./routes/insurance');
 const backupRoutes = require('./routes/backup');
 
 const app = express();
@@ -45,6 +46,7 @@ app.use('/api/categories', authMiddleware, categoriesRoutes);
 app.use('/api/budgets', authMiddleware, budgetsRoutes);
 app.use('/api/goals', authMiddleware, goalsRoutes);
 app.use('/api/subscriptions', authMiddleware, subscriptionsRoutes);
+app.use('/api/insurance', authMiddleware, insuranceRoutes);
 app.use('/api/backup', backupRoutes);
 
 // Serve static client build in production

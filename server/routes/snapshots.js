@@ -20,6 +20,12 @@ async function takeSnapshot(isManual = false) {
     }
     const investmentPnl = investmentValue - investmentCost;
 
+    let insuranceCashValue = 0;
+    try {
+      const insRow = db.prepare("SELECT COALESCE(SUM(cash_value), 0) as total FROM insurance WHERE status='active'").get();
+      if (insRow) insuranceCashValue = insRow.total || 0;
+    } catch (e) {}
+
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -32,7 +38,7 @@ async function takeSnapshot(isManual = false) {
       "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='expense' AND strftime('%Y', date)=? AND strftime('%m', date)=?"
     ).get(String(year), month);
 
-    const totalAssetsWithInvestments = assetsTotal.total + investmentValue;
+    const totalAssetsWithInvestments = assetsTotal.total + investmentValue + insuranceCashValue;
     const netCashflow = incomeTotal.total - expenseTotal.total;
     const netWorth = totalAssetsWithInvestments - liabilitiesTotal.total + netCashflow;
 

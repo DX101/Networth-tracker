@@ -338,7 +338,7 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
   const [modalError, setModalError] = useState('');
   useEffect(() => setForm(initial || {}), [initial]);
   async function submit(e) { e.preventDefault(); setSaving(true); setModalError(''); try { await onSave(form); } catch(err) { setModalError(err.message); } finally { setSaving(false); } }
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><h2>{title}</h2>{modalError && <div className="error">{modalError}</div>}<div className="form-grid">{fields.map(f => { if (f.condition && !f.condition(form)) return null; const resolvedOptions = typeof f.options === 'function' ? f.options(form) : (f.options || []); return <label key={f.name} style={f.type === 'checkbox' ? {display: 'flex', alignItems: 'center', gap: '10px'} : {}}>{f.type === 'checkbox' && <input type="checkbox" checked={!!form[f.name]} onChange={e => setForm({ ...form, [f.name]: e.target.checked })} style={{ width: 'auto' }} />}{f.label}{f.type === 'select' ? <select value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })}><option value="">Select</option>{[...new Set([...resolvedOptions, ...(form[f.name] && !resolvedOptions.includes(form[f.name]) ? [form[f.name]] : [])])].map(o => <option key={o} value={o}>{o}</option>)}</select> : f.type !== 'checkbox' ? <input type={f.type || 'text'} value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })} /> : null}</label>; })}</div><div className="modal-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></div></form></div>;
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><h2>{title}</h2>{modalError && <div className="error">{modalError}</div>}<div className="form-grid">{fields.map(f => { if (f.condition && !f.condition(form)) return null; const resolvedOptions = typeof f.options === 'function' ? f.options(form) : (f.options || []); return <label key={f.name} style={f.type === 'checkbox' ? {display: 'flex', alignItems: 'center', gap: '10px'} : {}}>{f.type === 'checkbox' && <input type="checkbox" checked={!!form[f.name]} onChange={e => setForm({ ...form, [f.name]: e.target.checked })} style={{ width: 'auto' }} />}{f.label}{f.type === 'select' ? <select value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })}><option value="">Select</option>{resolvedOptions.map((o, idx) => { const val = typeof o === 'object' && o !== null ? o.value : o; const lbl = typeof o === 'object' && o !== null ? o.label : o; return <option key={val ?? idx} value={val}>{lbl}</option>; })}</select> : f.type !== 'checkbox' ? <input type={f.type || 'text'} value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })} /> : null}</label>; })}</div><div className="modal-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></div></form></div>;
 }
 
 function ReportModal({ title, reportText, onCancel }) {
@@ -374,7 +374,8 @@ function Dashboard({ settings, categories }) {
       api('/snapshots?period=monthly'),
       api('/snapshots?period=weekly'),
       api(`/cashflow/summary/${now.getFullYear()}/${now.getMonth() + 1}`),
-      api('/goals')
+      api('/goals'),
+      api('/insurance')
     ]);
     setData({
       assets: r[0],
@@ -384,7 +385,8 @@ function Dashboard({ settings, categories }) {
       snapshots: r[4] || [],
       weeklySnapshots: r[5] || [],
       summary: r[6] || null,
-      goals: r[7] || []
+      goals: r[7] || [],
+      insurance: r[8] || []
     });
   }
 
@@ -392,20 +394,23 @@ function Dashboard({ settings, categories }) {
 
   const totals = useMemo(() => {
     const dA = data.assets.reduce((s, x) => s + convertValue(x.current_value, x.currency, settings), 0);
+    const insCash = (data.insurance || []).reduce((s, x) => s + (x.status === 'active' ? Number(x.cash_value || 0) : 0), 0);
     const liab = data.liabilities.reduce((s, x) => s + convertValue(x.current_value, x.currency, settings), 0);
     const inv = data.investments.reduce((s, x) => s + investmentCurrentValue(x, settings), 0);
     const invCost = data.investments.reduce((s, x) => s + investmentInvestedAmount(x, settings), 0);
-    const ncf = data.cashflow.reduce((s, x) => s + convertValue(x.type === 'income' ? x.amount : -x.amount, x.currency, settings), 0);
-    const assets = dA + inv;
+    const ncf = data.cashflow.reduce((s, x) => s + (x.type === 'transfer' ? 0 : convertValue(x.type === 'income' ? x.amount : -x.amount, x.currency, settings)), 0);
+    const unadjustedNcf = data.cashflow.filter(x => !x.adjust_balance && x.type !== 'transfer')
+      .reduce((s, x) => s + convertValue(x.type === 'income' ? x.amount : -x.amount, x.currency, settings), 0);
+    const assets = dA + inv + insCash;
     return {
-      directAssets: dA,
+      directAssets: dA + insCash,
       assets,
       liabilities: liab,
       investments: inv,
       invested: invCost,
       netCashflow: ncf,
       pnl: inv - invCost,
-      networth: assets - liab + ncf
+      networth: assets - liab + unadjustedNcf
     };
   }, [data, settings]);
 
@@ -1116,7 +1121,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.2.3 • Built with ❤️
+                Version 2.3.0 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -2499,6 +2504,1226 @@ function DebtPlanner({ settings, categories }) {
   );
 }
 
+
+// ─── ACCOUNT STATEMENT / PASSBOOK MODAL ───────────────────────────────────────
+function AccountStatementModal({ asset, settings, onClose }) {
+  const [statement, setStatement] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!asset) return;
+    setLoading(true);
+    api(`/cashflow/account/${asset.id}/statement`)
+      .then(res => setStatement(res))
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+  }, [asset]);
+
+  if (!asset) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '92%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>📖</span>
+              <span>Account Passbook & Activity</span>
+            </h2>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: '14px' }}>
+              <strong>{asset.name}</strong> • {asset.category} • Current Balance: <span style={{ color: '#10b981', fontWeight: 'bold' }}>{money(asset.current_value, settings)}</span>
+            </p>
+          </div>
+          <button className="secondary" onClick={onClose} style={{ padding: '4px 10px' }}>✕</button>
+        </div>
+
+        {loading ? (
+          <p className="muted" style={{ padding: '40px 0', textAlign: 'center' }}>Loading account statement...</p>
+        ) : statement ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+              <div className="card" style={{ padding: '14px', background: '#0f172a', border: '1px solid #1e293b' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Total Inflows</span>
+                <strong style={{ color: '#10b981', fontSize: '18px' }}>+{money(statement.total_inflow, settings)}</strong>
+              </div>
+              <div className="card" style={{ padding: '14px', background: '#0f172a', border: '1px solid #1e293b' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Total Outflows</span>
+                <strong style={{ color: '#ef4444', fontSize: '18px' }}>-{money(statement.total_outflow, settings)}</strong>
+              </div>
+              <div className="card" style={{ padding: '14px', background: '#0f172a', border: '1px solid #1e293b' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Net Activity</span>
+                <strong style={{ color: statement.net_change >= 0 ? '#10b981' : '#ef4444', fontSize: '18px' }}>
+                  {statement.net_change >= 0 ? '+' : ''}{money(statement.net_change, settings)}
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: '380px', overflowY: 'auto', border: '1px solid #1e293b', borderRadius: '8px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#0f172a', borderBottom: '1px solid #334155', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1 }}>
+                    <th style={{ padding: '10px 14px' }}>Date</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Description / Counterparty</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statement.transactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
+                        No transactions recorded for this account yet. When you log expenses, income, or transfers using this account, they will appear here!
+                      </td>
+                    </tr>
+                  ) : (
+                    statement.transactions.map(t => (
+                      <tr key={t.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{formatDate(t.date, settings)}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            padding: '3px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                            background: t.direction === 'inflow' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: t.direction === 'inflow' ? '#10b981' : '#ef4444'
+                          }}>
+                            {t.type === 'transfer' ? (t.direction === 'inflow' ? 'Transfer In ⇄' : 'Transfer Out ⇄') : (t.type === 'income' ? 'Income ↓' : 'Expense ↑')}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 500, color: '#f8fafc' }}>{t.display_label}</div>
+                          {t.category && <small style={{ color: '#64748b' }}>{t.category}</small>}
+                        </td>
+                        <td style={{
+                          padding: '10px 14px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px',
+                          color: t.direction === 'inflow' ? '#10b981' : '#ef4444'
+                        }}>
+                          {t.direction === 'inflow' ? '+' : '-'}{money(t.amount, settings)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button className="primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TRANSACTION MODAL (Income / Expense / Transfer) ─────────────────────────
+function TransactionModal({ initial, assets, categories, settings, onCancel, onSave }) {
+  const [txType, setTxType] = useState(initial?.type || 'expense');
+  const [form, setForm] = useState({
+    amount: '',
+    category: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0],
+    account_id: '',
+    to_account_id: '',
+    adjust_balance: true,
+    ...(initial || {})
+  });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (initial) {
+      setTxType(initial.type || 'expense');
+      setForm({ ...initial, adjust_balance: initial.adjust_balance !== 0 });
+    }
+  }, [initial]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const amt = Number(form.amount);
+    if (!amt || amt <= 0) {
+      setError('Please enter a valid amount greater than 0');
+      return;
+    }
+    if (txType === 'transfer') {
+      if (!form.account_id || !form.to_account_id) {
+        setError('Please select both Source (From) and Destination (To) accounts');
+        return;
+      }
+      if (Number(form.account_id) === Number(form.to_account_id)) {
+        setError('Source and Destination accounts cannot be the same');
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        ...form,
+        type: txType,
+        amount: amt,
+        category: txType === 'transfer' ? (form.category || 'Transfer') : (form.category || (txType === 'income' ? 'Salary' : 'General')),
+        account_id: form.account_id ? Number(form.account_id) : null,
+        to_account_id: form.to_account_id ? Number(form.to_account_id) : null,
+        adjust_balance: form.adjust_balance ? 1 : 0
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to save transaction');
+      setSaving(false);
+    }
+  };
+
+  const currentCategories = txType === 'income'
+    ? (categories?.income || ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'])
+    : txType === 'expense'
+    ? (categories?.expense || ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Insurance', 'Other'])
+    : ['Transfer', 'Investment Deposit', 'Trading Account Fund', 'ATM Cash Withdrawal', 'Wallet Top-up'];
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '520px', width: '90%' }}>
+        <h2>{initial?.id ? 'Edit Transaction' : 'Record Transaction'}</h2>
+
+        {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
+
+        {/* Toggle Pills: Expense / Income / Transfer */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '18px' }}>
+          <button
+            type="button"
+            className={`pill ${txType === 'expense' ? 'active' : ''}`}
+            style={{
+              padding: '8px', textAlign: 'center',
+              borderColor: txType === 'expense' ? '#ef4444' : '#334155',
+              color: txType === 'expense' ? '#fff' : '#94a3b8',
+              background: txType === 'expense' ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'transparent'
+            }}
+            onClick={() => { setTxType('expense'); if (form.category === 'Transfer') setForm({ ...form, category: '' }); }}
+          >
+            💸 Expense
+          </button>
+          <button
+            type="button"
+            className={`pill ${txType === 'income' ? 'active' : ''}`}
+            style={{
+              padding: '8px', textAlign: 'center',
+              borderColor: txType === 'income' ? '#10b981' : '#334155',
+              color: txType === 'income' ? '#fff' : '#94a3b8',
+              background: txType === 'income' ? 'linear-gradient(135deg, #10b981, #059669)' : 'transparent'
+            }}
+            onClick={() => { setTxType('income'); if (form.category === 'Transfer') setForm({ ...form, category: '' }); }}
+          >
+            💰 Income
+          </button>
+          <button
+            type="button"
+            className={`pill ${txType === 'transfer' ? 'active' : ''}`}
+            style={{
+              padding: '8px', textAlign: 'center',
+              borderColor: txType === 'transfer' ? '#38bdf8' : '#334155',
+              color: txType === 'transfer' ? '#fff' : '#94a3b8',
+              background: txType === 'transfer' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'transparent'
+            }}
+            onClick={() => { setTxType('transfer'); setForm({ ...form, category: 'Transfer' }); }}
+          >
+            ⇄ Transfer
+          </button>
+        </div>
+
+        <div className="form-grid">
+          {/* Amount */}
+          <label>
+            Amount ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              required
+              placeholder="0.00"
+              value={form.amount}
+              onChange={e => setForm({ ...form, amount: e.target.value })}
+            />
+          </label>
+
+          {/* Date */}
+          <label>
+            Date
+            <input
+              type="date"
+              required
+              value={form.date}
+              onChange={e => setForm({ ...form, date: e.target.value })}
+            />
+          </label>
+
+          {/* Account Selectors */}
+          {txType === 'transfer' ? (
+            <>
+              <label>
+                From Account (Source)
+                <select
+                  required
+                  value={form.account_id || ''}
+                  onChange={e => setForm({ ...form, account_id: e.target.value })}
+                >
+                  <option value="">-- Source Bank / Asset --</option>
+                  {assets.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({money(a.current_value, settings)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                To Account (Destination)
+                <select
+                  required
+                  value={form.to_account_id || ''}
+                  onChange={e => setForm({ ...form, to_account_id: e.target.value })}
+                >
+                  <option value="">-- Destination Bank / Asset --</option>
+                  {assets.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({money(a.current_value, settings)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <label>
+              {txType === 'expense' ? 'Paid From Account' : 'Deposited To Account'}
+              <select
+                value={form.account_id || ''}
+                onChange={e => setForm({ ...form, account_id: e.target.value })}
+              >
+                <option value="">-- Optional: Select Bank / Asset --</option>
+                {assets.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({money(a.current_value, settings)})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Category */}
+          <label>
+            Category
+            <select
+              value={form.category}
+              onChange={e => setForm({ ...form, category: e.target.value })}
+            >
+              <option value="">-- Select Category --</option>
+              {currentCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+
+          {/* Description */}
+          <label style={{ gridColumn: 'span 2' }}>
+            Description / Memo
+            <input
+              type="text"
+              placeholder={txType === 'transfer' ? 'e.g. Added ₹200k to Stock Broking Account from Kotak' : 'e.g. Grocery, Salary, Dividend'}
+              value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+            />
+          </label>
+
+          {/* Balance adjustment checkbox */}
+          <label style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#94a3b8' }}>
+            <input
+              type="checkbox"
+              checked={!!form.adjust_balance}
+              onChange={e => setForm({ ...form, adjust_balance: e.target.checked })}
+              style={{ width: 'auto' }}
+            />
+            {txType === 'transfer'
+              ? 'Automatically update both account balances (deduct source, credit destination)'
+              : txType === 'expense'
+              ? 'Automatically deduct amount from the selected bank account balance'
+              : 'Automatically add amount to the selected bank account balance'}
+          </label>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>
+            {saving ? 'Saving...' : initial?.id ? 'Update' : 'Confirm'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── CASHFLOW MANAGER COMPONENT ──────────────────────────────────────────────
+function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatement }) {
+  const [items, setItems] = useState([]);
+  const [assets, setAssets] = useState([]);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [accountFilter, setAccountFilter] = useState('all');
+  const [editingTx, setEditingTx] = useState(null);
+  const [notification, setNotification] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const load = async () => {
+    try {
+      const [cfData, assetData] = await Promise.all([
+        api('/cashflow'),
+        api('/assets')
+      ]);
+      setItems(cfData || []);
+      setAssets(assetData || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const filtered = items.filter(tx => {
+    if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
+    if (accountFilter !== 'all') {
+      const accId = Number(accountFilter);
+      if (Number(tx.account_id) !== accId && Number(tx.to_account_id) !== accId) return false;
+    }
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const desc = (tx.description || '').toLowerCase();
+      const cat = (tx.category || '').toLowerCase();
+      const acc = (tx.account_name || '').toLowerCase();
+      const toAcc = (tx.to_account_name || '').toLowerCase();
+      if (!desc.includes(term) && !cat.includes(term) && !acc.includes(term) && !toAcc.includes(term)) return false;
+    }
+    return true;
+  });
+
+  const totalIncome = items.filter(x => x.type === 'income').reduce((s, x) => s + Number(x.amount || 0), 0);
+  const totalExpense = items.filter(x => x.type === 'expense').reduce((s, x) => s + Number(x.amount || 0), 0);
+  const totalTransfer = items.filter(x => x.type === 'transfer').reduce((s, x) => s + Number(x.amount || 0), 0);
+  const netCashflow = totalIncome - totalExpense;
+
+  const handleSave = async (form) => {
+    if (form.id) {
+      await api(`/cashflow/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      setNotification('Transaction updated successfully!');
+    } else {
+      await api('/cashflow', { method: 'POST', body: JSON.stringify(form) });
+      setNotification(form.type === 'transfer' ? 'Fund transfer recorded and account balances updated!' : 'Transaction recorded successfully!');
+    }
+    setEditingTx(null);
+    await load();
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this transaction? Any bank account balance adjustments will be reverted.')) return;
+    await api(`/cashflow/${id}`, { method: 'DELETE' });
+    await load();
+    setNotification('Transaction deleted and account balance restored.');
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  return (
+    <section className="page">
+      <div className="overview-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+        <div>
+          <h1>Cashflow & Activity</h1>
+          <p>Track income, expenses, and internal bank transfers with automatic balance sync.</p>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="secondary" onClick={onOpenCsvImport}>Import CSV</button>
+          <button className="primary" onClick={() => setEditingTx({})} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>+</span> Record Transaction
+          </button>
+        </div>
+      </div>
+
+      {notification && (
+        <div style={{ padding: '12px 18px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>✓ {notification}</span>
+          <button style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: '18px', padding: 0 }} onClick={() => setNotification('')}>×</button>
+        </div>
+      )}
+
+      {/* Stat Cards */}
+      <div className="cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Income</span>
+          <strong style={{ color: '#10b981', fontSize: '20px', marginTop: '4px', display: 'block' }}>+{money(totalIncome, settings)}</strong>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Expenses</span>
+          <strong style={{ color: '#ef4444', fontSize: '20px', marginTop: '4px', display: 'block' }}>-{money(totalExpense, settings)}</strong>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Net Cash Flow</span>
+          <strong style={{ color: netCashflow >= 0 ? '#10b981' : '#ef4444', fontSize: '20px', marginTop: '4px', display: 'block' }}>
+            {netCashflow >= 0 ? '+' : ''}{money(netCashflow, settings)}
+          </strong>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#38bdf8', textTransform: 'uppercase' }}>Transfers ⇄</span>
+          <strong style={{ color: '#38bdf8', fontSize: '20px', marginTop: '4px', display: 'block' }}>{money(totalTransfer, settings)}</strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Internal movements (0 networth impact)</small>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px', background: '#0f172a', padding: '12px 16px', borderRadius: '10px', border: '1px solid #1e293b' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button className={`pill ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => setTypeFilter('all')}>
+            All ({items.length})
+          </button>
+          <button className={`pill ${typeFilter === 'expense' ? 'active' : ''}`} onClick={() => setTypeFilter('expense')}>
+            Expenses
+          </button>
+          <button className={`pill ${typeFilter === 'income' ? 'active' : ''}`} onClick={() => setTypeFilter('income')}>
+            Income
+          </button>
+          <button className={`pill ${typeFilter === 'transfer' ? 'active' : ''}`} onClick={() => setTypeFilter('transfer')}>
+            Transfers ⇄
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <select
+            value={accountFilter}
+            onChange={e => setAccountFilter(e.target.value)}
+            style={{ width: 'auto', minWidth: '180px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155' }}
+          >
+            <option value="all">🏦 All Accounts & Banks</option>
+            {assets.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({money(a.current_value, settings)})
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="text"
+            placeholder="Search description, category..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ width: '200px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155' }}
+          />
+        </div>
+      </div>
+
+      {/* Transactions Table */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #1e293b' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+          <thead>
+            <tr style={{ background: '#0f172a', borderBottom: '1px solid #334155', textAlign: 'left' }}>
+              <th style={{ padding: '12px 14px' }}>Date</th>
+              <th style={{ padding: '12px 14px' }}>Type</th>
+              <th style={{ padding: '12px 14px' }}>Category</th>
+              <th style={{ padding: '12px 14px' }}>Description / Account Flow</th>
+              <th style={{ padding: '12px 14px', textAlign: 'right' }}>Amount</th>
+              <th style={{ padding: '12px 14px', textAlign: 'center' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                  No transactions found matching your filters.
+                </td>
+              </tr>
+            ) : (
+              filtered.map(tx => (
+                <tr key={tx.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: '#94a3b8' }}>{formatDate(tx.date, settings)}</td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      padding: '3px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                      background: tx.type === 'income' ? 'rgba(16, 185, 129, 0.15)' : tx.type === 'transfer' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      color: tx.type === 'income' ? '#10b981' : tx.type === 'transfer' ? '#38bdf8' : '#ef4444'
+                    }}>
+                      {tx.type === 'income' ? 'Income' : tx.type === 'transfer' ? 'Transfer ⇄' : 'Expense'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px', fontWeight: 500 }}>{tx.category}</td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <div style={{ color: '#f8fafc', fontWeight: 500 }}>{tx.description || '-'}</div>
+                    {tx.type === 'transfer' ? (
+                      <div style={{ marginTop: '3px', fontSize: '11px', color: '#38bdf8' }}>
+                        <span style={{ color: '#94a3b8' }}>From:</span> <strong>{tx.account_name || 'Account'}</strong> ➔ <span style={{ color: '#94a3b8' }}>To:</span> <strong>{tx.to_account_name || 'Account'}</strong>
+                      </div>
+                    ) : tx.account_name ? (
+                      <div style={{ marginTop: '3px', fontSize: '11px', color: '#64748b' }}>
+                        {tx.type === 'expense' ? 'Paid from: ' : 'Deposited to: '}
+                        <strong style={{ color: '#94a3b8' }}>{tx.account_name}</strong>
+                      </div>
+                    ) : null}
+                  </td>
+                  <td style={{
+                    padding: '12px 14px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px',
+                    color: tx.type === 'income' ? '#10b981' : tx.type === 'transfer' ? '#38bdf8' : '#ef4444'
+                  }}>
+                    {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '⇄ ' : '-'}{money(tx.amount, settings)}
+                  </td>
+                  <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                      <button
+                        className="secondary"
+                        style={{ padding: '3px 8px', fontSize: '11px' }}
+                        onClick={() => setEditingTx(tx)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="danger"
+                        style={{ padding: '3px 8px', fontSize: '11px' }}
+                        onClick={() => handleDelete(tx.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {editingTx && (
+        <TransactionModal
+          initial={editingTx}
+          assets={assets}
+          categories={categories}
+          settings={settings}
+          onCancel={() => setEditingTx(null)}
+          onSave={handleSave}
+        />
+      )}
+    </section>
+  );
+}
+
+// ─── PAY INSURANCE PREMIUM MODAL ─────────────────────────────────────────────
+function PayPremiumModal({ policy, assets, settings, onCancel, onConfirm }) {
+  const [amount, setAmount] = useState(policy.premium_amount || '');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [accountId, setAccountId] = useState(policy.account_id || '');
+  const [syncCashflow, setSyncCashflow] = useState(true);
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setPaying(true);
+    setError('');
+    try {
+      await onConfirm({
+        amount: Number(amount),
+        date,
+        account_id: accountId ? Number(accountId) : null,
+        syncCashflow
+      });
+    } catch (err) {
+      setError(err.message || 'Payment failed');
+      setPaying(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: '480px', width: '90%' }}>
+        <h2>Pay Insurance Premium</h2>
+        <p className="muted" style={{ margin: '4px 0 16px' }}>
+          <strong>{policy.policy_name}</strong> ({policy.provider}) • Frequency: {policy.premium_frequency}
+        </p>
+
+        {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
+
+        <div className="form-grid">
+          <label>
+            Premium Amount ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              required
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Payment Date
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={e => setDate(e.target.value)}
+            />
+          </label>
+
+          <label style={{ gridColumn: 'span 2' }}>
+            Paid From Bank Account
+            <select
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+            >
+              <option value="">-- Select Bank Account --</option>
+              {assets.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({money(a.current_value, settings)})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#94a3b8' }}>
+            <input
+              type="checkbox"
+              checked={syncCashflow}
+              onChange={e => setSyncCashflow(e.target.checked)}
+              style={{ width: 'auto' }}
+            />
+            Deduct from bank account balance and record expense under Cashflow
+          </label>
+        </div>
+
+        <div style={{ background: '#0f172a', padding: '12px', borderRadius: '8px', marginTop: '16px', fontSize: '13px', color: '#38bdf8' }}>
+          ℹ️ Next due date will automatically advance by one {policy.premium_frequency} period upon payment confirmation.
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="primary" disabled={paying}>
+            {paying ? 'Processing...' : 'Confirm Premium Payment'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── INSURANCE POLICY MODAL ──────────────────────────────────────────────────
+function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
+  const [form, setForm] = useState({
+    policy_name: '',
+    provider: '',
+    policy_type: 'term_life',
+    policy_number: '',
+    sum_assured: '',
+    cash_value: '',
+    premium_amount: '',
+    premium_frequency: 'annual',
+    next_due_date: '',
+    start_date: new Date().toISOString().split('T')[0],
+    maturity_date: '',
+    account_id: '',
+    nominee: '',
+    status: 'active',
+    notes: '',
+    ...(initial || {})
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.policy_name.trim()) { setError('Policy name is required'); return; }
+    if (!form.provider.trim()) { setError('Provider is required'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({
+        ...form,
+        sum_assured: Number(form.sum_assured) || 0,
+        cash_value: Number(form.cash_value) || 0,
+        premium_amount: Number(form.premium_amount) || 0,
+        account_id: form.account_id ? Number(form.account_id) : null
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to save');
+      setSaving(false);
+    }
+  };
+
+  const isCashValueType = ['endowment', 'ulip'].includes(form.policy_type);
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: '600px', width: '90%' }}>
+        <h2>{initial?.id ? 'Edit Insurance Policy' : 'Add New Insurance Policy'}</h2>
+        {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
+
+        <div className="form-grid">
+          <label>
+            Policy Name
+            <input
+              type="text"
+              required
+              placeholder="e.g. Click 2 Protect Life, Jeevan Labh"
+              value={form.policy_name}
+              onChange={e => setForm({ ...form, policy_name: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Provider / Insurer
+            <input
+              type="text"
+              required
+              placeholder="e.g. HDFC Life, LIC, Star Health, ICICI"
+              value={form.provider}
+              onChange={e => setForm({ ...form, provider: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Policy Type
+            <select
+              value={form.policy_type}
+              onChange={e => setForm({ ...form, policy_type: e.target.value })}
+            >
+              <option value="term_life">Term Life Insurance (Pure Cover)</option>
+              <option value="endowment">Endowment / Money Back (Savings)</option>
+              <option value="ulip">ULIP (Unit Linked Investment)</option>
+              <option value="health">Health Insurance (Mediclaim)</option>
+              <option value="vehicle">Vehicle / Motor Insurance</option>
+              <option value="other">Other / General</option>
+            </select>
+          </label>
+
+          <label>
+            Policy Number
+            <input
+              type="text"
+              placeholder="e.g. POL-8934201"
+              value={form.policy_number}
+              onChange={e => setForm({ ...form, policy_number: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Sum Assured / Life Cover ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              placeholder="e.g. 10000000 (1 Cr)"
+              value={form.sum_assured}
+              onChange={e => setForm({ ...form, sum_assured: e.target.value })}
+            />
+          </label>
+
+          {isCashValueType ? (
+            <label>
+              Current Cash / Surrender Value (Adds to Net Worth)
+              <input
+                type="number"
+                step="any"
+                placeholder="0.00"
+                value={form.cash_value}
+                onChange={e => setForm({ ...form, cash_value: e.target.value })}
+              />
+            </label>
+          ) : (
+            <label>
+              Nominee Name
+              <input
+                type="text"
+                placeholder="e.g. Spouse / Parent"
+                value={form.nominee}
+                onChange={e => setForm({ ...form, nominee: e.target.value })}
+              />
+            </label>
+          )}
+
+          <label>
+            Premium Amount ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              placeholder="0.00"
+              value={form.premium_amount}
+              onChange={e => setForm({ ...form, premium_amount: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Payment Frequency
+            <select
+              value={form.premium_frequency}
+              onChange={e => setForm({ ...form, premium_frequency: e.target.value })}
+            >
+              <option value="annual">Annual (Yearly)</option>
+              <option value="semi_annual">Semi-Annual (Half-Yearly)</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
+
+          <label>
+            Next Premium Due Date
+            <input
+              type="date"
+              value={form.next_due_date || ''}
+              onChange={e => setForm({ ...form, next_due_date: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Policy Maturity / Expiry Date
+            <input
+              type="date"
+              value={form.maturity_date || ''}
+              onChange={e => setForm({ ...form, maturity_date: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Payment Bank Account
+            <select
+              value={form.account_id || ''}
+              onChange={e => setForm({ ...form, account_id: e.target.value })}
+            >
+              <option value="">-- Select Bank Account --</option>
+              {assets.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({money(a.current_value, settings)})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Policy Status
+            <select
+              value={form.status}
+              onChange={e => setForm({ ...form, status: e.target.value })}
+            >
+              <option value="active">Active</option>
+              <option value="lapsed">Lapsed</option>
+              <option value="matured">Matured</option>
+              <option value="surrendered">Surrendered</option>
+            </select>
+          </label>
+
+          <label style={{ gridColumn: 'span 2' }}>
+            Notes / Policy Details
+            <input
+              type="text"
+              placeholder="e.g. Critical illness rider included, tax saving 80C"
+              value={form.notes}
+              onChange={e => setForm({ ...form, notes: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>
+            {saving ? 'Saving...' : initial?.id ? 'Update Policy' : 'Save Policy'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── INSURANCE PORTFOLIO COMPONENT ───────────────────────────────────────────
+function InsurancePortfolio({ settings, categories }) {
+  const [policies, setPolicies] = useState([]);
+  const [assets, setAssets] = useState([]);
+  const [filterType, setFilterType] = useState('all');
+  const [editingPolicy, setEditingPolicy] = useState(null);
+  const [payingPolicy, setPayingPolicy] = useState(null);
+  const [notification, setNotification] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    try {
+      const [insData, assetData] = await Promise.all([
+        api('/insurance'),
+        api('/assets')
+      ]);
+      setPolicies(insData || []);
+      setAssets(assetData || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const totalLifeCover = policies
+    .filter(p => ['term_life', 'endowment', 'ulip'].includes(p.policy_type) && p.status === 'active')
+    .reduce((s, p) => s + Number(p.sum_assured || 0), 0);
+
+  const totalHealthCover = policies
+    .filter(p => p.policy_type === 'health' && p.status === 'active')
+    .reduce((s, p) => s + Number(p.sum_assured || 0), 0);
+
+  const totalCashValue = policies
+    .filter(p => p.status === 'active')
+    .reduce((s, p) => s + Number(p.cash_value || 0), 0);
+
+  const totalAnnualPremiums = policies
+    .filter(p => p.status === 'active')
+    .reduce((s, p) => {
+      const amt = Number(p.premium_amount || 0);
+      const freq = (p.premium_frequency || 'annual').toLowerCase();
+      if (freq === 'monthly') return s + (amt * 12);
+      if (freq === 'quarterly') return s + (amt * 4);
+      if (freq === 'semi_annual' || freq === 'half_yearly') return s + (amt * 2);
+      return s + amt;
+    }, 0);
+
+  const filteredPolicies = policies.filter(p => {
+    if (filterType !== 'all' && p.policy_type !== filterType) return false;
+    return true;
+  });
+
+  const handleSavePolicy = async (form) => {
+    if (form.id) {
+      await api(`/insurance/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      setNotification(`Updated policy "${form.policy_name}" successfully!`);
+    } else {
+      await api('/insurance', { method: 'POST', body: JSON.stringify(form) });
+      setNotification(`Added policy "${form.policy_name}" successfully!`);
+    }
+    setEditingPolicy(null);
+    await load();
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  const handleDeletePolicy = async (id) => {
+    if (!confirm('Are you sure you want to delete this insurance policy?')) return;
+    await api(`/insurance/${id}`, { method: 'DELETE' });
+    await load();
+    setNotification('Policy deleted successfully.');
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  const handlePayPremium = async (payload) => {
+    await api(`/insurance/${payingPolicy.id}/pay-premium`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    setPayingPolicy(null);
+    await load();
+    setNotification(`Premium payment recorded for "${payingPolicy.policy_name}"! Next due date advanced.`);
+    setTimeout(() => setNotification(''), 5000);
+  };
+
+  const policyTypeLabels = {
+    term_life: 'Term Life Insurance',
+    endowment: 'Endowment / Money Back',
+    ulip: 'ULIP / Investment Plan',
+    health: 'Health Insurance',
+    vehicle: 'Vehicle / Motor',
+    other: 'General Insurance'
+  };
+
+  return (
+    <section className="page">
+      <div className="overview-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+        <div>
+          <h1>Insurance & Protection</h1>
+          <p>Track your Term Life, ULIPs, health policies, coverage limits, and premium schedules.</p>
+        </div>
+        <button className="primary" onClick={() => setEditingPolicy({})} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>+</span> Add New Policy
+        </button>
+      </div>
+
+      {notification && (
+        <div style={{ padding: '12px 18px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>✓ {notification}</span>
+          <button style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: '18px', padding: 0 }} onClick={() => setNotification('')}>×</button>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div className="cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Life Cover</span>
+          <strong style={{ color: '#10b981', fontSize: '22px', marginTop: '4px', display: 'block' }}>
+            {money(totalLifeCover, settings)}
+          </strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Family protection / Sum assured</small>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Health Cover</span>
+          <strong style={{ color: '#38bdf8', fontSize: '22px', marginTop: '4px', display: 'block' }}>
+            {money(totalHealthCover, settings)}
+          </strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Medical / Hospitalization floater</small>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Annual Premiums</span>
+          <strong style={{ color: '#f59e0b', fontSize: '22px', marginTop: '4px', display: 'block' }}>
+            {money(totalAnnualPremiums, settings)} / yr
+          </strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Total yearly renewal outflow</small>
+        </div>
+        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
+          <span style={{ fontSize: '12px', color: '#a855f7', textTransform: 'uppercase' }}>Cash / Surrender Value</span>
+          <strong style={{ color: '#a855f7', fontSize: '22px', marginTop: '4px', display: 'block' }}>
+            {money(totalCashValue, settings)}
+          </strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>ULIP & endowment fund value (in Net Worth)</small>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <button className={`pill ${filterType === 'all' ? 'active' : ''}`} onClick={() => setFilterType('all')}>
+          All Policies ({policies.length})
+        </button>
+        <button className={`pill ${filterType === 'term_life' ? 'active' : ''}`} onClick={() => setFilterType('term_life')}>
+          Term Life
+        </button>
+        <button className={`pill ${filterType === 'endowment' ? 'active' : ''}`} onClick={() => setFilterType('endowment')}>
+          Endowment / Savings
+        </button>
+        <button className={`pill ${filterType === 'ulip' ? 'active' : ''}`} onClick={() => setFilterType('ulip')}>
+          ULIP
+        </button>
+        <button className={`pill ${filterType === 'health' ? 'active' : ''}`} onClick={() => setFilterType('health')}>
+          Health
+        </button>
+      </div>
+
+      {/* Policy Cards Grid */}
+      {filteredPolicies.length === 0 ? (
+        <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b', border: '1px solid #1e293b' }}>
+          <p style={{ margin: 0, fontSize: '15px' }}>No insurance policies found. Click "+ Add New Policy" to track your life, health, or investment policies!</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '18px' }}>
+          {filteredPolicies.map(policy => {
+            const isDueSoon = policy.next_due_date && (() => {
+              const diff = new Date(policy.next_due_date).getTime() - new Date().getTime();
+              return diff >= 0 && diff <= (30 * 24 * 60 * 60 * 1000);
+            })();
+
+            return (
+              <div key={policy.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '18px', color: '#f8fafc' }}>{policy.policy_name}</h4>
+                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>{policy.provider} {policy.policy_number ? `• #${policy.policy_number}` : ''}</span>
+                    </div>
+                    <span style={{
+                      padding: '3px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                      background: policy.status === 'active' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                      color: policy.status === 'active' ? '#10b981' : '#94a3b8',
+                      textTransform: 'uppercase'
+                    }}>
+                      {policyTypeLabels[policy.policy_type] || policy.policy_type}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Sum Assured (Cover)</span>
+                      <strong style={{ color: '#10b981', fontSize: '15px' }}>
+                        {policy.sum_assured ? money(policy.sum_assured, settings) : '-'}
+                      </strong>
+                    </div>
+                    {policy.cash_value > 0 ? (
+                      <div>
+                        <span style={{ color: '#64748b', display: 'block' }}>Cash Value</span>
+                        <strong style={{ color: '#a855f7', fontSize: '15px' }}>
+                          {money(policy.cash_value, settings)}
+                        </strong>
+                      </div>
+                    ) : (
+                      <div>
+                        <span style={{ color: '#64748b', display: 'block' }}>Nominee</span>
+                        <strong style={{ color: '#e2e8f0' }}>{policy.nominee || '-'}</strong>
+                      </div>
+                    )}
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Premium</span>
+                      <strong style={{ color: '#f59e0b' }}>
+                        {policy.premium_amount ? `${money(policy.premium_amount, settings)} (${policy.premium_frequency})` : '-'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', display: 'block' }}>Next Due Date</span>
+                      <strong style={{ color: isDueSoon ? '#ef4444' : '#e2e8f0' }}>
+                        {policy.next_due_date ? formatDate(policy.next_due_date, settings) : '-'}
+                        {isDueSoon && <span style={{ marginLeft: '4px', fontSize: '10px', color: '#ef4444' }}>⚠️ Due Soon</span>}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {policy.account_name && (
+                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '14px' }}>
+                      Auto-payment account: <strong style={{ color: '#94a3b8' }}>{policy.account_name}</strong>
+                    </div>
+                  )}
+
+                  {policy.notes && (
+                    <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', marginBottom: '14px' }}>
+                      "{policy.notes}"
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                  <button
+                    className="primary"
+                    style={{ flex: 1, padding: '7px 12px', fontSize: '13px' }}
+                    onClick={() => setPayingPolicy(policy)}
+                  >
+                    ✓ Pay Premium
+                  </button>
+                  <button
+                    className="secondary"
+                    style={{ padding: '7px 12px', fontSize: '13px' }}
+                    onClick={() => setEditingPolicy(policy)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="danger"
+                    style={{ padding: '7px 12px', fontSize: '13px' }}
+                    onClick={() => handleDeletePolicy(policy.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {payingPolicy && (
+        <PayPremiumModal
+          policy={payingPolicy}
+          assets={assets}
+          settings={settings}
+          onCancel={() => setPayingPolicy(null)}
+          onConfirm={handlePayPremium}
+        />
+      )}
+
+      {editingPolicy && (
+        <PolicyModal
+          initial={editingPolicy}
+          assets={assets}
+          settings={settings}
+          onCancel={() => setEditingPolicy(null)}
+          onSave={handleSavePolicy}
+        />
+      )}
+    </section>
+  );
+}
+
+
 function CsvImporter({ onCancel, onComplete }) {
   const [file, setFile] = useState(null);
   const [data, setData] = useState([]);
@@ -2626,6 +3851,7 @@ function App() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
+  const [statementAsset, setStatementAsset] = useState(null);
 
   useEffect(() => {
     // Process due subscriptions automatically on startup
@@ -2760,6 +3986,15 @@ function App() {
       )
     },
     {
+      id: 'insurance',
+      label: 'Insurance',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      )
+    },
+    {
       id: 'history',
       label: 'History',
       icon: (
@@ -2795,6 +4030,15 @@ function App() {
       columns={(s) => [
         { key: 'name', label: 'Name' }, { key: 'category', label: 'Category' },
         { key: 'current_value', label: 'Current Value', render: (r) => money(r.current_value, { ...s, currency: r.currency || s.currency }) },
+        { key: 'statement', label: 'Statement', render: (r) => (
+          <button
+            className="secondary"
+            style={{ padding: '3px 8px', fontSize: '11px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
+            onClick={(e) => { e.stopPropagation(); setStatementAsset(r); }}
+          >
+            📖 Passbook
+          </button>
+        )},
         { key: 'date_added', label: 'Date', render: (r) => formatDate(r.date_added, s) },
         { key: 'notes', label: 'Notes' }
       ]}
@@ -2823,35 +4067,14 @@ function App() {
       ]}
       performance={{ title: 'Liability Trend', type: 'line', series: [{ key: 'total_liabilities', label: 'Total Liabilities', color: '#ef4444', getValue: (r) => Number(r.current_value || 0) }] }}
     />,
-    cashflow: <CrudPage title="Cashflow" endpoint="/cashflow" settings={s}
-      customAction={<button onClick={() => setShowCsvImport(true)} className="secondary">Import CSV</button>}
-      fields={[
-        { name: 'type', label: 'Type', type: 'select', options: ['income', 'expense'] },
-        { name: 'category', label: 'Category', type: 'select', options: (form) => form.type === 'income' ? (categories.income || []) : form.type === 'expense' ? (categories.expense || []) : [...(categories.income || []), ...(categories.expense || [])] },
-        { name: 'description', label: 'Description' }, { name: 'amount', label: 'Amount', type: 'number' },
-        { name: 'date', label: 'Date', type: 'date' }
-      ]}
-      columns={(s) => [
-        { key: 'type', label: 'Type', render: (r) => <span className={r.type === 'income' ? 'good' : 'bad'}>{r.type}</span> },
-        { key: 'category', label: 'Category' }, { key: 'description', label: 'Description' },
-        { key: 'amount', label: 'Amount', render: (r) => money(r.amount, s) },
-        { key: 'date', label: 'Date', render: (r) => formatDate(r.date, s) }
-      ]}
-      performance={{ 
-        title: 'Income vs Expenses', 
-        type: 'line', 
-        series: [
-          { key: 'income', label: 'Total Income', color: '#10b981', getValue: (r) => r.type === 'income' ? Number(r.amount || 0) : 0 },
-          { key: 'expense', label: 'Total Expenses', color: '#f43f5e', getValue: (r) => r.type === 'expense' ? Number(r.amount || 0) : 0 }
-        ] 
-      }}
-    />,
+    cashflow: <CashflowManager settings={s} categories={categories} onOpenCsvImport={() => setShowCsvImport(true)} onOpenStatement={(asset) => setStatementAsset(asset)} />,
     investments: <PortfolioTracker settings={s} categories={categories} />,
     budgets: <BudgetPlanner settings={s} />,
     goals: <Goals settings={s} />,
     projections: <Projections settings={s} />,
     debtplanner: <DebtPlanner settings={s} categories={categories} />,
     subscriptions: <Subscriptions settings={s} categories={categories} />,
+    insurance: <InsurancePortfolio settings={s} categories={categories} />,
     history: <History settings={s} />,
     settings: <Settings settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} onLogout={logout} />,
   };
@@ -2895,6 +4118,7 @@ function App() {
       <main>
         {pages[view]}
         {showCsvImport && <CsvImporter onCancel={() => setShowCsvImport(false)} onComplete={() => { setShowCsvImport(false); window.location.reload(); }} />}
+        {statementAsset && <AccountStatementModal asset={statementAsset} settings={s} onClose={() => setStatementAsset(null)} />}
       </main>
     </div>
   );
