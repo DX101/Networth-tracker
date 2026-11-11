@@ -1,6 +1,6 @@
 {
   "name": "networth-tracker-v2",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "NetWorth Tracker v2 - v1 feature-parity rebuild",
   "private": true,
   "main": "electron/main.js",
@@ -65,7 +65,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "NetWorth-Tracker-Setup-${version}.${ext}"
+      "artifactName": "NetWorth Tracker Setup 2.3.0.exe"
     }
   }
 }

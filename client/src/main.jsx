@@ -1293,7 +1293,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.0 • Built with ❤️
+                Version 2.3.2 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -1452,9 +1452,16 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       {activeTab === 'categories' && (
         <div className="categories-manager">
           <div className="cat-type-pills">
-            {['asset', 'liability', 'income', 'expense', 'investment'].map(t => (
-              <button key={t} className={`pill ${catType === t ? 'active' : ''}`} onClick={() => setCatType(t)}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+            {[
+              { id: 'asset', label: 'Asset' },
+              { id: 'liability', label: 'Liability' },
+              { id: 'income', label: 'Income' },
+              { id: 'expense', label: 'Expense' },
+              { id: 'investment', label: 'Investment' },
+              { id: 'transfer', label: 'Transfer (Cashflow)' }
+            ].map(t => (
+              <button key={t.id} className={`pill ${catType === t.id ? 'active' : ''}`} onClick={() => setCatType(t.id)}>
+                {t.label}
               </button>
             ))}
           </div>
@@ -2889,6 +2896,16 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Inline account creation state
+  const [newSourceName, setNewSourceName] = useState('');
+  const [newSourceCategory, setNewSourceCategory] = useState('Bank Accounts');
+  const [newDestName, setNewDestName] = useState('');
+  const [newDestCategory, setNewDestCategory] = useState('Trading / Brokerage Account');
+
+  // Custom category state
+  const [isCustomCat, setIsCustomCat] = useState(false);
+  const [customCatInput, setCustomCatInput] = useState('');
+
   useEffect(() => {
     if (!assets || assets.length === 0) {
       api('/assets').then(res => setAssetList(res || [])).catch(() => {});
@@ -2932,25 +2949,80 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
       setError('Please enter a valid amount greater than 0');
       return;
     }
+
+    let sourceId = form.account_id;
+    let destId = form.to_account_id;
+
+    // Handle new source account creation
+    if (sourceId === '__new__') {
+      if (!newSourceName.trim()) {
+        setError('Please enter a name for the new source account');
+        return;
+      }
+      try {
+        const created = await api('/assets', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: newSourceName.trim(),
+            category: newSourceCategory || 'Bank Accounts',
+            current_value: 0,
+            currency: settings.currency || 'INR'
+          })
+        });
+        sourceId = created.id;
+      } catch (err) {
+        setError('Failed to create new source account: ' + err.message);
+        return;
+      }
+    }
+
+    // Handle new destination account creation (e.g. Stock Broker Account)
+    if (destId === '__new__') {
+      if (!newDestName.trim()) {
+        setError('Please enter a name for the new destination account / broker');
+        return;
+      }
+      try {
+        const created = await api('/assets', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: newDestName.trim(),
+            category: newDestCategory || 'Trading / Brokerage Account',
+            current_value: 0,
+            currency: settings.currency || 'INR'
+          })
+        });
+        destId = created.id;
+      } catch (err) {
+        setError('Failed to create new destination account: ' + err.message);
+        return;
+      }
+    }
+
     if (txType === 'transfer') {
-      if (!form.account_id || !form.to_account_id) {
+      if (!sourceId || !destId) {
         setError('Please select both Source (From) and Destination (To) accounts');
         return;
       }
-      if (Number(form.account_id) === Number(form.to_account_id)) {
+      if (Number(sourceId) === Number(destId)) {
         setError('Source and Destination accounts cannot be the same');
         return;
       }
     }
+
+    const finalCategory = isCustomCat && customCatInput.trim()
+      ? customCatInput.trim()
+      : (form.category || (txType === 'transfer' ? 'Transfer' : (txType === 'income' ? 'Salary' : 'Other')));
+
     setSaving(true);
     try {
       await onSave({
         ...form,
         type: txType,
         amount: amt,
-        category: txType === 'transfer' ? (form.category || 'Transfer') : (form.category || (txType === 'income' ? 'Salary' : 'Other')),
-        account_id: form.account_id ? Number(form.account_id) : null,
-        to_account_id: form.to_account_id ? Number(form.to_account_id) : null,
+        category: finalCategory,
+        account_id: sourceId ? Number(sourceId) : null,
+        to_account_id: destId ? Number(destId) : null,
         adjust_balance: form.adjust_balance ? 1 : 0
       });
     } catch (err) {
@@ -2963,7 +3035,7 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
     ? (categories?.income || ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'])
     : txType === 'expense'
     ? (categories?.expense || ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Insurance', 'Other'])
-    : ['Transfer', 'Investment Deposit', 'Trading Account Fund', 'ATM Cash Withdrawal', 'Wallet Top-up'];
+    : (categories?.transfer || ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']);
 
   const currentCategories = form.category && !baseCategories.includes(form.category)
     ? [form.category, ...baseCategories]
@@ -2971,7 +3043,7 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '520px', width: '90%' }}>
+      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '540px', width: '92%' }}>
         <h2>{initial?.id ? 'Edit Transaction' : 'Record Transaction'}</h2>
 
         {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
@@ -3060,6 +3132,7 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
                       {a.name} ({money(a.current_value, settings)})
                     </option>
                   ))}
+                  <option value="__new__">➕ + Add New Account / Broker...</option>
                 </select>
               </label>
 
@@ -3076,37 +3149,147 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
                       {a.name} ({money(a.current_value, settings)})
                     </option>
                   ))}
+                  <option value="__new__">➕ + Add New Account / Stock Broker...</option>
                 </select>
               </label>
+
+              {/* Inline Source Account Creator */}
+              {form.account_id === '__new__' && (
+                <div style={{ gridColumn: 'span 2', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid #0284c7', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px' }}>
+                    ➕ Create New Source Account
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>Account Name
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="e.g. Kotak Mahindra Bank" 
+                        value={newSourceName} 
+                        onChange={e => setNewSourceName(e.target.value)} 
+                      />
+                    </label>
+                    <label style={{ fontSize: '12px' }}>Category
+                      <select value={newSourceCategory} onChange={e => setNewSourceCategory(e.target.value)}>
+                        <option value="Bank Accounts">Bank Accounts</option>
+                        <option value="Trading / Brokerage Account">Trading / Brokerage Account</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Destination Account Creator (e.g. Stock Broker) */}
+              {form.to_account_id === '__new__' && (
+                <div style={{ gridColumn: 'span 2', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid #0284c7', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px' }}>
+                    ➕ Create New Destination Account / Stock Broker
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>Broker / Account Name
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="e.g. Stock Broker Sahi or Dhan" 
+                        value={newDestName} 
+                        onChange={e => setNewDestName(e.target.value)} 
+                      />
+                    </label>
+                    <label style={{ fontSize: '12px' }}>Category
+                      <select value={newDestCategory} onChange={e => setNewDestCategory(e.target.value)}>
+                        <option value="Trading / Brokerage Account">Trading / Brokerage Account</option>
+                        <option value="Bank Accounts">Bank Accounts</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Mutual Funds">Mutual Funds</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
-            <label>
-              {txType === 'expense' ? 'Paid From Account' : 'Deposited To Account'}
-              <select
-                value={form.account_id || ''}
-                onChange={e => setForm({ ...form, account_id: e.target.value })}
-              >
-                <option value="">-- Optional: Select Bank / Asset --</option>
-                {assetList.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({money(a.current_value, settings)})
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label>
+                {txType === 'expense' ? 'Paid From Account' : 'Deposited To Account'}
+                <select
+                  value={form.account_id || ''}
+                  onChange={e => setForm({ ...form, account_id: e.target.value })}
+                >
+                  <option value="">-- Optional: Select Bank / Asset --</option>
+                  {assetList.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({money(a.current_value, settings)})
+                    </option>
+                  ))}
+                  <option value="__new__">➕ + Add New Account / Broker...</option>
+                </select>
+              </label>
+
+              {form.account_id === '__new__' && (
+                <div style={{ gridColumn: 'span 2', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid #0284c7', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px' }}>
+                    ➕ Create New Account / Broker
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>Account Name
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="e.g. Stock Broker Sahi" 
+                        value={newSourceName} 
+                        onChange={e => setNewSourceName(e.target.value)} 
+                      />
+                    </label>
+                    <label style={{ fontSize: '12px' }}>Category
+                      <select value={newSourceCategory} onChange={e => setNewSourceCategory(e.target.value)}>
+                        <option value="Bank Accounts">Bank Accounts</option>
+                        <option value="Trading / Brokerage Account">Trading / Brokerage Account</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Category */}
           <label>
             Category
             <select
-              value={form.category}
-              onChange={e => setForm({ ...form, category: e.target.value })}
+              value={isCustomCat ? '__custom__' : form.category}
+              onChange={e => {
+                if (e.target.value === '__custom__') {
+                  setIsCustomCat(true);
+                } else {
+                  setIsCustomCat(false);
+                  setForm({ ...form, category: e.target.value });
+                }
+              }}
             >
               <option value="">-- Select Category --</option>
               {currentCategories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__custom__">➕ + Add Custom Category...</option>
             </select>
           </label>
+
+          {/* Custom Category Input */}
+          {isCustomCat && (
+            <label>
+              New Custom Category Name
+              <input
+                type="text"
+                placeholder="Type new category..."
+                value={customCatInput}
+                onChange={e => setCustomCatInput(e.target.value)}
+                required
+              />
+            </label>
+          )}
 
           {/* Description */}
           <label style={{ gridColumn: 'span 2' }}>

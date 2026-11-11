@@ -170,7 +170,7 @@ function initSchema(db) {
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('asset','liability','income','expense','investment')),
+      type TEXT NOT NULL CHECK(type IN ('asset','liability','income','expense','investment','transfer')),
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -292,6 +292,7 @@ function initSchema(db) {
   ensureAssetColumns(db);
   ensureLiabilityColumns(db);
   ensureCashflowColumns(db);
+  ensureCategoriesColumns(db);
   ensureInsuranceTable(db);
 
   // Auto-seed default categories if none exist (e.g., fresh Electron install)
@@ -403,6 +404,44 @@ function ensureCashflowColumns(db) {
   }
 }
 
+function ensureCategoriesColumns(db) {
+  const catTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='categories'").get();
+  if (catTable && catTable.sql && !catTable.sql.includes("'transfer'")) {
+    db.exec(`
+      CREATE TABLE categories_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('asset','liability','income','expense','investment','transfer')),
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO categories_new (id, name, type, created_at)
+      SELECT id, name, type, created_at FROM categories;
+      DROP TABLE categories;
+      ALTER TABLE categories_new RENAME TO categories;
+    `);
+  }
+
+  // Ensure default transfer categories are seeded
+  const transferCount = db.prepare("SELECT COUNT(*) AS cnt FROM categories WHERE type = 'transfer'").get();
+  if (!transferCount || transferCount.cnt === 0) {
+    const defaultTransfer = [
+      'Transfer',
+      'Trading Account Fund',
+      'Stock Broker Deposit',
+      'Investment Deposit',
+      'ATM Cash Withdrawal',
+      'Wallet Top-up',
+      'Credit Card Payment',
+      'Savings Transfer',
+      'Other Transfer'
+    ];
+    const insertCat = db.prepare('INSERT INTO categories (name, type) VALUES (?, ?)');
+    for (const cat of defaultTransfer) {
+      insertCat.run(cat, 'transfer');
+    }
+  }
+}
+
 function ensureInsuranceTable(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS insurance (
@@ -479,9 +518,19 @@ function seedDefaultCategories(db) {
   insertCat('Real Estate', 'investment');
   insertCat('Gold', 'investment');
   insertCat('SIP', 'investment');
+  // Transfer categories
+  insertCat('Transfer', 'transfer');
+  insertCat('Trading Account Fund', 'transfer');
+  insertCat('Stock Broker Deposit', 'transfer');
+  insertCat('Investment Deposit', 'transfer');
+  insertCat('ATM Cash Withdrawal', 'transfer');
+  insertCat('Wallet Top-up', 'transfer');
+  insertCat('Credit Card Payment', 'transfer');
+  insertCat('Savings Transfer', 'transfer');
+  insertCat('Other Transfer', 'transfer');
 
   console.log('Default categories seeded: ' +
-    '10 asset, 5 liability, 7 income, 12 expense, 8 investment');
+    '10 asset, 5 liability, 7 income, 12 expense, 8 investment, 9 transfer');
 }
 
-module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns, ensureCashflowColumns, ensureInsuranceTable, DB_PATH };
+module.exports = { initDb, getDb, ensureBudgetColumns, ensureSnapshotColumns, ensureInvestmentColumns, ensureSettingsColumns, ensureCashflowColumns, ensureCategoriesColumns, ensureInsuranceTable, DB_PATH };
