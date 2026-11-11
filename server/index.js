@@ -27,7 +27,7 @@ const CLIENT_BUILD_PATH = process.env.CLIENT_BUILD_PATH || path.join(__dirname, 
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(cors({
-  origin: isProduction ? false : true, // In production, same-origin (Nginx proxies)
+  origin: true,
   credentials: true,
 }));
 app.use(express.json());
@@ -61,8 +61,8 @@ app.get('*', (req, res, next) => {
 
 // Initialise DB then start listening
 initDb().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT} (accessible locally and on LAN)`);
   });
 }).catch(err => {
   console.error('Failed to initialise database:', err);

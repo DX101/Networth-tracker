@@ -84,6 +84,56 @@ router.post('/upload/google', async (req, res) => {
   }
 });
 
+// Restore from Google Drive
+router.post('/restore/google', async (req, res) => {
+  try {
+    const oauth2Client = getGoogleOAuthClient();
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    const listRes = await drive.files.list({
+      q: "name contains 'networth-backup-' and trashed = false",
+      orderBy: 'createdTime desc',
+      pageSize: 10,
+      fields: 'files(id, name, createdTime, size)'
+    });
+
+    const files = listRes.data.files;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'No backups found in Google Drive.' });
+    }
+
+    const targetFile = req.body && req.body.fileId ? files.find(f => f.id === req.body.fileId) : files[0];
+    if (!targetFile) {
+      return res.status(404).json({ error: 'Specified backup file not found.' });
+    }
+
+    const destPath = DB_PATH + '.restore_temp';
+    const dest = fs.createWriteStream(destPath);
+    const driveRes = await drive.files.get(
+      { fileId: targetFile.id, alt: 'media' },
+      { responseType: 'stream' }
+    );
+
+    await new Promise((resolve, reject) => {
+      driveRes.data
+        .pipe(dest)
+        .on('finish', resolve)
+        .on('error', reject);
+    });
+
+    if (fs.existsSync(DB_PATH)) {
+      fs.copyFileSync(DB_PATH, DB_PATH + '.pre_restore_bak');
+    }
+
+    fs.copyFileSync(destPath, DB_PATH);
+    fs.unlinkSync(destPath);
+
+    res.json({ success: true, restoredFile: targetFile.name, createdTime: targetFile.createdTime });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Dropbox endpoints
 router.get('/auth/dropbox', (req, res) => {
   try {
@@ -153,6 +203,47 @@ router.post('/upload/dropbox', async (req, res) => {
     });
     
     res.json({ success: true, path: response.result.path_display });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore from Dropbox
+router.post('/restore/dropbox', async (req, res) => {
+  try {
+    const db = getDb();
+    const settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE id = 1').get();
+    
+    if (!settings.dropbox_refresh_token) {
+      throw new Error('Dropbox is not connected.');
+    }
+
+    const dbx = new Dropbox({ 
+      clientId: settings.dropbox_client_id, 
+      clientSecret: settings.dropbox_client_secret, 
+      refreshToken: settings.dropbox_refresh_token 
+    });
+
+    const listRes = await dbx.filesListFolder({ path: '' });
+    const backupFiles = listRes.result.entries
+      .filter(f => f['.tag'] === 'file' && f.name.startsWith('networth-backup-') && f.name.endsWith('.db'))
+      .sort((a, b) => new Date(b.client_modified) - new Date(a.client_modified));
+
+    if (backupFiles.length === 0) {
+      return res.status(404).json({ error: 'No backup files found in Dropbox.' });
+    }
+
+    const targetFile = backupFiles[0];
+    const downloadRes = await dbx.filesDownload({ path: targetFile.path_display });
+    const fileBinary = downloadRes.result.fileBinary;
+
+    if (fs.existsSync(DB_PATH)) {
+      fs.copyFileSync(DB_PATH, DB_PATH + '.pre_restore_bak');
+    }
+
+    fs.writeFileSync(DB_PATH, fileBinary);
+
+    res.json({ success: true, restoredFile: targetFile.name, modified: targetFile.client_modified });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

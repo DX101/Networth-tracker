@@ -170,6 +170,9 @@ function Auth({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || '');
+
   async function submit(e) {
     e.preventDefault();
     setError('');
@@ -177,16 +180,65 @@ function Auth({ onLogin }) {
       const data = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username, password }) });
       localStorage.setItem('token', data.token);
       onLogin(data.user);
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('Load failed'))) {
+        setError('Cannot reach server. Please tap "⚙️ Server Settings" below to verify your server address.');
+        setShowServerConfig(true);
+      } else {
+        setError(err.message);
+      }
+    }
   }
-  return <div className="auth-shell"><form className="auth-card" onSubmit={submit}>
-    <h1>NetWorth Tracker</h1><p>{mode === 'login' ? 'Sign in to continue' : 'Create an account'}</p>
-    {error && <div className="error">{error}</div>}
-    <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-    <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-    <button>{mode === 'login' ? 'Login' : 'Register'}</button>
-    <button type="button" className="link" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Register new account' : 'Back to login'}</button>
-  </form></div>;
+
+  function handleSaveServer(e) {
+    e.preventDefault();
+    const val = serverUrl.trim();
+    if (val) {
+      localStorage.setItem('server_url', val);
+    } else {
+      localStorage.removeItem('server_url');
+    }
+    setError('');
+    alert('Server URL saved: ' + (val || 'Default (local)'));
+  }
+
+  return (
+    <div className="auth-shell">
+      <form className="auth-card" onSubmit={submit}>
+        <h1>NetWorth Tracker</h1>
+        <p>{mode === 'login' ? 'Sign in to continue' : 'Create an account'}</p>
+        {error && <div className="error">{error}</div>}
+        <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <button>{mode === 'login' ? 'Login' : 'Register'}</button>
+        <button type="button" className="link" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+          {mode === 'login' ? 'Register new account' : 'Back to login'}
+        </button>
+
+        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+          <button type="button" className="link" style={{ fontSize: '0.82rem', opacity: 0.8 }} onClick={() => setShowServerConfig(!showServerConfig)}>
+            ⚙️ {showServerConfig ? 'Hide Server Settings' : 'Configure Server URL (Mobile / Remote)'}
+          </button>
+          {showServerConfig && (
+            <div style={{ marginTop: '10px', textAlign: 'left', background: 'rgba(0,0,0,0.25)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <label style={{ fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>
+                Server / PC IP Address:
+              </label>
+              <input
+                placeholder="e.g. http://192.168.1.15:3001"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                style={{ fontSize: '0.85rem', padding: '8px', marginBottom: '8px' }}
+              />
+              <button type="button" className="secondary" style={{ width: '100%', fontSize: '0.82rem', padding: '7px' }} onClick={handleSaveServer}>
+                Save Server URL
+              </button>
+            </div>
+          )}
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function Table({ columns, rows, onEdit, onDelete }) {
@@ -1231,8 +1283,21 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                   <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Connected</span>
                   <button onClick={async () => {
                     const res = await api('/backup/upload/google', { method: 'POST' });
-                    if (res.success) alert('Backup successful!');
+                    if (res.success) alert('Backup successful! Database backed up to Google Drive.');
                   }}>Backup Now</button>
+                  <button className="secondary" onClick={async () => {
+                    if (window.confirm('Restore latest backup from Google Drive? This will safely snapshot your current database and replace it with the latest cloud backup.')) {
+                      try {
+                        const res = await api('/backup/restore/google', { method: 'POST' });
+                        if (res.success) {
+                          alert(`Restored successfully from ${res.restoredFile}! Reloading...`);
+                          window.location.reload();
+                        }
+                      } catch (err) {
+                        alert(`Restore failed: ${err.message}`);
+                      }
+                    }
+                  }}>Restore Latest</button>
                   <button className="danger" onClick={async () => {
                     await api('/backup/disconnect/google', { method: 'POST' });
                     setSettings({ ...settings, gdrive_refresh_token: null });
@@ -1265,6 +1330,19 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                     const res = await api('/backup/upload/dropbox', { method: 'POST' });
                     if (res.success) alert('Backup successful! Path: ' + res.path);
                   }}>Backup Now</button>
+                  <button className="secondary" onClick={async () => {
+                    if (window.confirm('Restore latest backup from Dropbox? This will safely snapshot your current database and replace it with the latest cloud backup.')) {
+                      try {
+                        const res = await api('/backup/restore/dropbox', { method: 'POST' });
+                        if (res.success) {
+                          alert(`Restored successfully from ${res.restoredFile}! Reloading...`);
+                          window.location.reload();
+                        }
+                      } catch (err) {
+                        alert(`Restore failed: ${err.message}`);
+                      }
+                    }
+                  }}>Restore Latest</button>
                   <button className="danger" onClick={async () => {
                     await api('/backup/disconnect/dropbox', { method: 'POST' });
                     setSettings({ ...settings, dropbox_refresh_token: null });
@@ -3874,7 +3952,7 @@ function App() {
   const [view, setView] = useState('dashboard');
   const [settings, setSettings] = useState({ currency: 'INR', date_format: 'DD/MM/YYYY' });
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [statementAsset, setStatementAsset] = useState(null);
 
@@ -4124,7 +4202,7 @@ function App() {
           </button>
         </div>
         {navItems.map(item => (
-          <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)}>
+          <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); if (typeof window !== 'undefined' && window.innerWidth <= 768) setSidebarCollapsed(true); }}>
             <b>{item.icon}</b>
             {!sidebarCollapsed && item.label}
           </button>
