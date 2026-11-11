@@ -132,8 +132,78 @@ function BreakdownPanel({ type, data, totals, settings }) {
   );
 }
 
-function RecentCashFlow({ rows, settings, compact = false }) {
-  return <div className={compact ? 'recent-cashflow compact' : 'recent-cashflow'}><div className="section-title"><h3>Recent Cash Flow</h3>{!compact && <span>Latest income and expense entries</span>}</div><div className="cashflow-list">{rows.length === 0 ? <p className="muted">No recent cash flow entries yet.</p> : rows.map((row) => <div className="cashflow-item" key={row.id}><div className={`cash-icon ${row.type}`}>{row.type === 'income' ? '+' : '-'}</div><div><strong>{row.description || row.category}</strong><small>{row.category} {'\u2022'} {formatDate(row.date, settings)}</small></div><span className={row.type === 'income' ? 'good' : 'bad'}>{row.type === 'income' ? '+' : '-'}{money(row.amount, settings)}</span></div>)}</div></div>;
+function RecentCashFlow({ rows, settings, compact = false, onEdit, onDelete }) {
+  return (
+    <div className={compact ? 'recent-cashflow compact' : 'recent-cashflow'}>
+      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3>Recent Activity</h3>
+        {!compact && <span className="muted" style={{ fontSize: '12px' }}>Latest income, expenses & transfers</span>}
+      </div>
+      <div className="cashflow-list">
+        {rows.length === 0 ? (
+          <p className="muted" style={{ padding: '16px 0', textAlign: 'center' }}>No cash flow entries yet.</p>
+        ) : (
+          rows.map((row) => (
+            <div className="cashflow-item" key={row.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                <div className={`cash-icon ${row.type}`} style={{
+                  background: row.type === 'income' ? 'rgba(16,185,129,0.15)' : row.type === 'transfer' ? 'rgba(56,189,248,0.15)' : 'rgba(239,68,68,0.15)',
+                  color: row.type === 'income' ? '#10b981' : row.type === 'transfer' ? '#38bdf8' : '#ef4444',
+                  fontWeight: 'bold', fontSize: '13px'
+                }}>
+                  {row.type === 'income' ? '+' : row.type === 'transfer' ? '⇄' : '-'}
+                </div>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                  <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {row.description || row.category}
+                  </strong>
+                  <small style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                    {row.type === 'transfer' ? (
+                      <span style={{ color: '#38bdf8' }}>
+                        {row.account_name || 'Account'} ➔ {row.to_account_name || 'Account'}
+                      </span>
+                    ) : row.account_name ? (
+                      <span>{row.type === 'expense' ? 'From: ' : 'To: '}<strong>{row.account_name}</strong></span>
+                    ) : null}
+                    <span>• {row.category}</span>
+                    <span>• {formatDate(row.date, settings)}</span>
+                  </small>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
+                  color: row.type === 'income' ? '#10b981' : row.type === 'transfer' ? '#38bdf8' : '#ef4444'
+                }}>
+                  {row.type === 'income' ? '+' : row.type === 'transfer' ? '⇄ ' : '-'}{money(row.amount, settings)}
+                </span>
+                {onEdit && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ padding: '3px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                    onClick={(e) => { e.stopPropagation(); onEdit(row); }}
+                  >
+                    Edit
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    className="danger"
+                    style={{ padding: '3px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                    onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 function money(value, settings) {
@@ -424,6 +494,13 @@ function Dashboard({ settings, categories }) {
   const [quickType, setQuickType] = useState('');
   const [quickForm, setQuickForm] = useState({});
   const [snapshotReport, setSnapshotReport] = useState(null);
+  const [editingTx, setEditingTx] = useState(null);
+
+  async function handleDeleteTx(id) {
+    if (!confirm('Delete this transaction? Any bank account balance adjustments will be reverted.')) return;
+    await api(`/cashflow/${id}`, { method: 'DELETE' });
+    await load();
+  }
 
   async function load() {
     const now = new Date();
@@ -813,7 +890,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
         <div className="quick-actions">
           <button onClick={() => setQuickType('asset')}>+ Asset</button>
           <button onClick={() => setQuickType('liability')}>+ Liability</button>
-          <button onClick={() => setQuickType('cashflow')}>+ Cash Flow</button>
+          <button onClick={() => setEditingTx({})}>+ Cash Flow</button>
           <button onClick={() => setQuickType('investment')}>+ Investment</button>
           <button className="secondary glow-btn" onClick={handleTakeSnapshot}>⏱ Snapshot</button>
         </div>
@@ -979,7 +1056,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
               </div>
             </div>
           ),
-          recent_transactions: <RecentCashFlow rows={data.cashflow.slice(0, 8)} settings={settings} />
+          recent_transactions: <RecentCashFlow rows={data.cashflow.slice(0, 8)} settings={settings} onEdit={setEditingTx} onDelete={handleDeleteTx} />
         };
 
         const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart', 'recent_transactions'];
@@ -1031,6 +1108,24 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
           initial={quickForm}
           onCancel={() => { setQuickType(''); setQuickForm({}); }}
           onSave={quickAdd}
+        />
+      )}
+      {editingTx && (
+        <TransactionModal
+          initial={editingTx}
+          assets={data.assets}
+          categories={categories}
+          settings={settings}
+          onCancel={() => setEditingTx(null)}
+          onSave={async (form) => {
+            if (form.id) {
+              await api(`/cashflow/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+            } else {
+              await api('/cashflow', { method: 'POST', body: JSON.stringify(form) });
+            }
+            setEditingTx(null);
+            await load();
+          }}
         />
       )}
       {snapshotReport && <ReportModal title="Snapshot Report" reportText={snapshotReport} onCancel={() => setSnapshotReport(null)} />}
@@ -2611,16 +2706,36 @@ function DebtPlanner({ settings, categories }) {
 // ─── ACCOUNT STATEMENT / PASSBOOK MODAL ───────────────────────────────────────
 function AccountStatementModal({ asset, settings, onClose }) {
   const [statement, setStatement] = useState(null);
+  const [allAssets, setAllAssets] = useState([]);
+  const [editingTx, setEditingTx] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadStatement = async () => {
     if (!asset) return;
     setLoading(true);
-    api(`/cashflow/account/${asset.id}/statement`)
-      .then(res => setStatement(res))
-      .catch(err => console.error(err))
-      .finally(() => setLoading(false));
+    try {
+      const [res, assetsRes] = await Promise.all([
+        api(`/cashflow/account/${asset.id}/statement`),
+        api('/assets')
+      ]);
+      setStatement(res);
+      setAllAssets(assetsRes || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStatement();
   }, [asset]);
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this transaction? Bank account balance adjustments will be reverted.')) return;
+    await api(`/cashflow/${id}`, { method: 'DELETE' });
+    await loadStatement();
+  };
 
   if (!asset) return null;
 
@@ -2669,12 +2784,13 @@ function AccountStatementModal({ asset, settings, onClose }) {
                     <th style={{ padding: '10px 14px' }}>Type</th>
                     <th style={{ padding: '10px 14px' }}>Description / Counterparty</th>
                     <th style={{ padding: '10px 14px', textAlign: 'right' }}>Amount</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {statement.transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
+                      <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
                         No transactions recorded for this account yet. When you log expenses, income, or transfers using this account, they will appear here!
                       </td>
                     </tr>
@@ -2701,6 +2817,26 @@ function AccountStatementModal({ asset, settings, onClose }) {
                         }}>
                           {t.direction === 'inflow' ? '+' : '-'}{money(t.amount, settings)}
                         </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              className="secondary"
+                              style={{ padding: '3px 8px', fontSize: '11px' }}
+                              onClick={() => setEditingTx(t)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              style={{ padding: '3px 8px', fontSize: '11px' }}
+                              onClick={() => handleDelete(t.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -2713,13 +2849,32 @@ function AccountStatementModal({ asset, settings, onClose }) {
         <div className="modal-actions" style={{ marginTop: '20px' }}>
           <button className="primary" onClick={onClose}>Done</button>
         </div>
+
+        {editingTx && (
+          <TransactionModal
+            initial={editingTx}
+            assets={allAssets}
+            settings={settings}
+            onCancel={() => setEditingTx(null)}
+            onSave={async (form) => {
+              if (form.id) {
+                await api(`/cashflow/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+              } else {
+                await api('/cashflow', { method: 'POST', body: JSON.stringify(form) });
+              }
+              setEditingTx(null);
+              await loadStatement();
+            }}
+          />
+        )}
       </div>
     </div>
   );
 }
 
 // ─── TRANSACTION MODAL (Income / Expense / Transfer) ─────────────────────────
-function TransactionModal({ initial, assets, categories, settings, onCancel, onSave }) {
+function TransactionModal({ initial, assets = [], categories, settings, onCancel, onSave }) {
+  const [assetList, setAssetList] = useState(assets || []);
   const [txType, setTxType] = useState(initial?.type || 'expense');
   const [form, setForm] = useState({
     amount: '',
@@ -2735,9 +2890,37 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (initial) {
+    if (!assets || assets.length === 0) {
+      api('/assets').then(res => setAssetList(res || [])).catch(() => {});
+    } else {
+      setAssetList(assets);
+    }
+  }, [assets]);
+
+  useEffect(() => {
+    if (initial && Object.keys(initial).length > 0) {
       setTxType(initial.type || 'expense');
-      setForm({ ...initial, adjust_balance: initial.adjust_balance !== 0 });
+      setForm({
+        amount: initial.amount ?? '',
+        category: initial.category || '',
+        description: initial.description || '',
+        date: initial.date ? String(initial.date).slice(0, 10) : new Date().toISOString().split('T')[0],
+        account_id: initial.account_id ?? '',
+        to_account_id: initial.to_account_id ?? '',
+        adjust_balance: initial.adjust_balance !== 0,
+        id: initial.id
+      });
+    } else {
+      setTxType('expense');
+      setForm({
+        amount: '',
+        category: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        account_id: '',
+        to_account_id: '',
+        adjust_balance: true
+      });
     }
   }, [initial]);
 
@@ -2765,7 +2948,7 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
         ...form,
         type: txType,
         amount: amt,
-        category: txType === 'transfer' ? (form.category || 'Transfer') : (form.category || (txType === 'income' ? 'Salary' : 'General')),
+        category: txType === 'transfer' ? (form.category || 'Transfer') : (form.category || (txType === 'income' ? 'Salary' : 'Other')),
         account_id: form.account_id ? Number(form.account_id) : null,
         to_account_id: form.to_account_id ? Number(form.to_account_id) : null,
         adjust_balance: form.adjust_balance ? 1 : 0
@@ -2776,11 +2959,15 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
     }
   };
 
-  const currentCategories = txType === 'income'
+  const baseCategories = txType === 'income'
     ? (categories?.income || ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'])
     : txType === 'expense'
     ? (categories?.expense || ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Insurance', 'Other'])
     : ['Transfer', 'Investment Deposit', 'Trading Account Fund', 'ATM Cash Withdrawal', 'Wallet Top-up'];
+
+  const currentCategories = form.category && !baseCategories.includes(form.category)
+    ? [form.category, ...baseCategories]
+    : baseCategories;
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
@@ -2868,7 +3055,7 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
                   onChange={e => setForm({ ...form, account_id: e.target.value })}
                 >
                   <option value="">-- Source Bank / Asset --</option>
-                  {assets.map(a => (
+                  {assetList.map(a => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({money(a.current_value, settings)})
                     </option>
@@ -2884,7 +3071,7 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
                   onChange={e => setForm({ ...form, to_account_id: e.target.value })}
                 >
                   <option value="">-- Destination Bank / Asset --</option>
-                  {assets.map(a => (
+                  {assetList.map(a => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({money(a.current_value, settings)})
                     </option>
@@ -2900,7 +3087,7 @@ function TransactionModal({ initial, assets, categories, settings, onCancel, onS
                 onChange={e => setForm({ ...form, account_id: e.target.value })}
               >
                 <option value="">-- Optional: Select Bank / Asset --</option>
-                {assets.map(a => (
+                {assetList.map(a => (
                   <option key={a.id} value={a.id}>
                     {a.name} ({money(a.current_value, settings)})
                   </option>

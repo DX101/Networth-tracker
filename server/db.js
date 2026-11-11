@@ -359,10 +359,48 @@ function ensureSubscriptionColumns(db) {
 }
 
 function ensureCashflowColumns(db) {
-  const columns = db.prepare('PRAGMA table_info(cashflow)').all().map((column) => column.name);
-  if (!columns.includes('account_id')) db.exec("ALTER TABLE cashflow ADD COLUMN account_id INTEGER DEFAULT NULL");
-  if (!columns.includes('to_account_id')) db.exec("ALTER TABLE cashflow ADD COLUMN to_account_id INTEGER DEFAULT NULL");
-  if (!columns.includes('adjust_balance')) db.exec("ALTER TABLE cashflow ADD COLUMN adjust_balance INTEGER DEFAULT 1");
+  const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='cashflow'").get();
+  const sql = tableInfo?.sql || '';
+
+  if (!sql.includes("'transfer'") || !sql.includes('account_id') || !sql.includes('to_account_id') || !sql.includes('adjust_balance')) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cashflow_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
+        amount REAL NOT NULL DEFAULT 0,
+        category TEXT NOT NULL,
+        date TEXT NOT NULL DEFAULT (date('now')),
+        description TEXT DEFAULT '',
+        is_recurring INTEGER DEFAULT 0,
+        frequency TEXT DEFAULT NULL,
+        account_id INTEGER DEFAULT NULL,
+        to_account_id INTEGER DEFAULT NULL,
+        adjust_balance INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
+
+    const oldCols = db.prepare('PRAGMA table_info(cashflow)').all().map(c => c.name);
+    const hasAccountId = oldCols.includes('account_id');
+    const hasToAccountId = oldCols.includes('to_account_id');
+    const hasAdjust = oldCols.includes('adjust_balance');
+
+    const selectCols = `
+      id, type, amount, category, date, description, is_recurring, frequency,
+      ${hasAccountId ? 'account_id' : 'NULL AS account_id'},
+      ${hasToAccountId ? 'to_account_id' : 'NULL AS to_account_id'},
+      ${hasAdjust ? 'adjust_balance' : '1 AS adjust_balance'},
+      created_at, updated_at
+    `;
+
+    db.exec(`
+      INSERT INTO cashflow_new (id, type, amount, category, date, description, is_recurring, frequency, account_id, to_account_id, adjust_balance, created_at, updated_at)
+      SELECT ${selectCols} FROM cashflow;
+      DROP TABLE cashflow;
+      ALTER TABLE cashflow_new RENAME TO cashflow;
+    `);
+  }
 }
 
 function ensureInsuranceTable(db) {

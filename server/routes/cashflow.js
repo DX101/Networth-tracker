@@ -162,35 +162,41 @@ router.post('/', async (req, res) => {
       if (Number(account_id) === Number(to_account_id)) {
         return res.status(400).json({ error: 'Source and Destination accounts cannot be the same' });
       }
-
-      if (shouldAdjust) {
-        adjustAssetBalance(db, account_id, -amt);
-        adjustAssetBalance(db, to_account_id, amt);
-      }
-    } else if (type === 'expense') {
-      if (account_id && shouldAdjust) {
-        adjustAssetBalance(db, account_id, -amt);
-      }
-    } else if (type === 'income') {
-      if (account_id && shouldAdjust) {
-        adjustAssetBalance(db, account_id, amt);
-      }
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO cashflow (
-        type, amount, category, date, description,
-        is_recurring, frequency, account_id, to_account_id, adjust_balance
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const runInsert = db.transaction(() => {
+      if (type === 'transfer') {
+        if (shouldAdjust) {
+          adjustAssetBalance(db, account_id, -amt);
+          adjustAssetBalance(db, to_account_id, amt);
+        }
+      } else if (type === 'expense') {
+        if (account_id && shouldAdjust) {
+          adjustAssetBalance(db, account_id, -amt);
+        }
+      } else if (type === 'income') {
+        if (account_id && shouldAdjust) {
+          adjustAssetBalance(db, account_id, amt);
+        }
+      }
 
-    const result = stmt.run(
-      type, amt, cat, date || new Date().toISOString().split('T')[0],
-      description || '', is_recurring ? 1 : 0, frequency || null,
-      account_id ? Number(account_id) : null,
-      to_account_id ? Number(to_account_id) : null,
-      shouldAdjust ? 1 : 0
-    );
+      const stmt = db.prepare(`
+        INSERT INTO cashflow (
+          type, amount, category, date, description,
+          is_recurring, frequency, account_id, to_account_id, adjust_balance
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      return stmt.run(
+        type, amt, cat, date || new Date().toISOString().split('T')[0],
+        description || '', is_recurring ? 1 : 0, frequency || null,
+        account_id ? Number(account_id) : null,
+        to_account_id ? Number(to_account_id) : null,
+        shouldAdjust ? 1 : 0
+      );
+    });
+
+    const result = runInsert();
 
     await takeSnapshot();
 
@@ -260,48 +266,52 @@ router.put('/:id', async (req, res) => {
     const newToAccountId = to_account_id !== undefined ? (to_account_id ? Number(to_account_id) : null) : existing.to_account_id;
     const newAdjustBalance = adjust_balance !== undefined ? (adjust_balance ? 1 : 0) : existing.adjust_balance;
 
-    // 1. Revert previous asset adjustment
-    if (existing.adjust_balance) {
-      const oldAmt = Number(existing.amount) || 0;
-      if (existing.type === 'expense' && existing.account_id) {
-        adjustAssetBalance(db, existing.account_id, oldAmt);
-      } else if (existing.type === 'income' && existing.account_id) {
-        adjustAssetBalance(db, existing.account_id, -oldAmt);
-      } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
-        adjustAssetBalance(db, existing.account_id, oldAmt);
-        adjustAssetBalance(db, existing.to_account_id, -oldAmt);
+    const runUpdate = db.transaction(() => {
+      // 1. Revert previous asset adjustment
+      if (existing.adjust_balance) {
+        const oldAmt = Number(existing.amount) || 0;
+        if (existing.type === 'expense' && existing.account_id) {
+          adjustAssetBalance(db, existing.account_id, oldAmt);
+        } else if (existing.type === 'income' && existing.account_id) {
+          adjustAssetBalance(db, existing.account_id, -oldAmt);
+        } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
+          adjustAssetBalance(db, existing.account_id, oldAmt);
+          adjustAssetBalance(db, existing.to_account_id, -oldAmt);
+        }
       }
-    }
 
-    // 2. Apply new asset adjustment
-    if (newAdjustBalance) {
-      if (newType === 'expense' && newAccountId) {
-        adjustAssetBalance(db, newAccountId, -newAmount);
-      } else if (newType === 'income' && newAccountId) {
-        adjustAssetBalance(db, newAccountId, newAmount);
-      } else if (newType === 'transfer' && newAccountId && newToAccountId) {
-        adjustAssetBalance(db, newAccountId, -newAmount);
-        adjustAssetBalance(db, newToAccountId, newAmount);
+      // 2. Apply new asset adjustment
+      if (newAdjustBalance) {
+        if (newType === 'expense' && newAccountId) {
+          adjustAssetBalance(db, newAccountId, -newAmount);
+        } else if (newType === 'income' && newAccountId) {
+          adjustAssetBalance(db, newAccountId, newAmount);
+        } else if (newType === 'transfer' && newAccountId && newToAccountId) {
+          adjustAssetBalance(db, newAccountId, -newAmount);
+          adjustAssetBalance(db, newToAccountId, newAmount);
+        }
       }
-    }
 
-    // 3. Update record
-    const stmt = db.prepare(`
-      UPDATE cashflow SET 
-        type = ?, amount = ?, category = ?, date = ?, description = ?,
-        is_recurring = ?, frequency = ?, account_id = ?, to_account_id = ?,
-        adjust_balance = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `);
+      // 3. Update record
+      const stmt = db.prepare(`
+        UPDATE cashflow SET 
+          type = ?, amount = ?, category = ?, date = ?, description = ?,
+          is_recurring = ?, frequency = ?, account_id = ?, to_account_id = ?,
+          adjust_balance = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `);
 
-    stmt.run(
-      newType, newAmount, newCat, date ?? existing.date,
-      description ?? existing.description,
-      is_recurring !== undefined ? (is_recurring ? 1 : 0) : existing.is_recurring,
-      frequency !== undefined ? frequency : existing.frequency,
-      newAccountId, newToAccountId, newAdjustBalance,
-      req.params.id
-    );
+      stmt.run(
+        newType, newAmount, newCat, date ?? existing.date,
+        description ?? existing.description,
+        is_recurring !== undefined ? (is_recurring ? 1 : 0) : existing.is_recurring,
+        frequency !== undefined ? frequency : existing.frequency,
+        newAccountId, newToAccountId, newAdjustBalance,
+        req.params.id
+      );
+    });
+
+    runUpdate();
 
     await takeSnapshot();
 
@@ -329,20 +339,24 @@ router.delete('/:id', async (req, res) => {
     const existing = db.prepare('SELECT * FROM cashflow WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Cashflow entry not found' });
 
-    // Revert balance adjustment if was applied
-    if (existing.adjust_balance) {
-      const amt = Number(existing.amount) || 0;
-      if (existing.type === 'expense' && existing.account_id) {
-        adjustAssetBalance(db, existing.account_id, amt);
-      } else if (existing.type === 'income' && existing.account_id) {
-        adjustAssetBalance(db, existing.account_id, -amt);
-      } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
-        adjustAssetBalance(db, existing.account_id, amt);
-        adjustAssetBalance(db, existing.to_account_id, -amt);
+    const runDelete = db.transaction(() => {
+      // Revert balance adjustment if was applied
+      if (existing.adjust_balance) {
+        const amt = Number(existing.amount) || 0;
+        if (existing.type === 'expense' && existing.account_id) {
+          adjustAssetBalance(db, existing.account_id, amt);
+        } else if (existing.type === 'income' && existing.account_id) {
+          adjustAssetBalance(db, existing.account_id, -amt);
+        } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
+          adjustAssetBalance(db, existing.account_id, amt);
+          adjustAssetBalance(db, existing.to_account_id, -amt);
+        }
       }
-    }
 
-    db.prepare('DELETE FROM cashflow WHERE id = ?').run(req.params.id);
+      db.prepare('DELETE FROM cashflow WHERE id = ?').run(req.params.id);
+    });
+
+    runDelete();
     await takeSnapshot();
     res.json({ message: 'Cashflow entry deleted and balance reversed' });
   } catch (err) {
