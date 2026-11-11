@@ -38,7 +38,9 @@ router.post('/', async (req, res) => {
     );
     const result = stmt.run(name, category, current_value || 0, currency || null, date_added || new Date().toISOString().split('T')[0], notes || '');
     await takeSnapshot();
-    const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(result.lastInsertRowid);
+    const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(result.lastInsertRowid)
+      || db.prepare('SELECT * FROM assets ORDER BY id DESC LIMIT 1').get()
+      || { id: result.lastInsertRowid, name, category, current_value };
     res.status(201).json(asset);
   } catch (err) {
     res.status(500).json({ error: err.message });

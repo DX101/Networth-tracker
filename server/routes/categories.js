@@ -43,7 +43,7 @@ router.post('/', (req, res) => {
     const db = getDb();
     const { name, type } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
-    const validTypes = ['asset', 'liability', 'income', 'expense', 'investment'];
+    const validTypes = ['asset', 'liability', 'income', 'expense', 'investment', 'transfer'];
     if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type. Must be: ' + validTypes.join(', ') });
 
     // Prevent duplicate

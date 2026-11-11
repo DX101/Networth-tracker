@@ -61,9 +61,10 @@ function queryOne(sql, params = []) {
 
 function prepareAndRun(sql, params = []) {
   _rawDb.run(sql, params);
-  saveDb();
+  const changes = _rawDb.getRowsModified();
   const row = queryOne('SELECT last_insert_rowid() AS id');
-  return { changes: _rawDb.getRowsModified(), lastInsertRowid: row ? row.id : 0 };
+  saveDb();
+  return { changes, lastInsertRowid: row ? row.id : 0 };
 }
 
 function execRaw(sql) {

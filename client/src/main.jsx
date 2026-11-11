@@ -24,7 +24,8 @@ const DEFAULT_CATEGORIES = {
   liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
   income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
   expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
-  investment: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'Bonds', 'Real Estate', 'Gold', 'SIP']
+  investment: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
+  transfer: ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']
 };
 
 async function api(path, options = {}) {
@@ -1293,7 +1294,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.2 • Built with ❤️
+                Version 2.3.3 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -2969,7 +2970,12 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
             currency: settings.currency || 'INR'
           })
         });
-        sourceId = created.id;
+        sourceId = created?.id;
+        if (!sourceId) {
+          const fresh = await api('/assets');
+          const found = (fresh || []).find(a => a.name === newSourceName.trim());
+          if (found) sourceId = found.id;
+        }
       } catch (err) {
         setError('Failed to create new source account: ' + err.message);
         return;
@@ -2992,7 +2998,12 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
             currency: settings.currency || 'INR'
           })
         });
-        destId = created.id;
+        destId = created?.id;
+        if (!destId) {
+          const fresh = await api('/assets');
+          const found = (fresh || []).find(a => a.name === newDestName.trim());
+          if (found) destId = found.id;
+        }
       } catch (err) {
         setError('Failed to create new destination account: ' + err.message);
         return;
