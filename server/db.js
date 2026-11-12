@@ -157,6 +157,13 @@ function initSchema(db) {
       ticker TEXT DEFAULT '',
       is_sip INTEGER DEFAULT 0,
       sip_monthly REAL DEFAULT 0,
+      interest_rate REAL NOT NULL DEFAULT 0,
+      maturity_date TEXT DEFAULT NULL,
+      tenure TEXT DEFAULT '',
+      payout_frequency TEXT DEFAULT 'Payment on Maturity',
+      receiving_account_id INTEGER DEFAULT NULL,
+      receiving_account_name TEXT DEFAULT '',
+      last_interest_date TEXT DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -321,6 +328,11 @@ function ensureInvestmentColumns(db) {
   if (!columns.includes('maturity_date')) db.exec('ALTER TABLE investments ADD COLUMN maturity_date TEXT');
   if (!columns.includes('currency')) db.exec('ALTER TABLE investments ADD COLUMN currency TEXT');
   if (!columns.includes('ticker')) db.exec('ALTER TABLE investments ADD COLUMN ticker TEXT DEFAULT ""');
+  if (!columns.includes('tenure')) db.exec("ALTER TABLE investments ADD COLUMN tenure TEXT DEFAULT ''");
+  if (!columns.includes('payout_frequency')) db.exec("ALTER TABLE investments ADD COLUMN payout_frequency TEXT DEFAULT 'Payment on Maturity'");
+  if (!columns.includes('receiving_account_id')) db.exec('ALTER TABLE investments ADD COLUMN receiving_account_id INTEGER DEFAULT NULL');
+  if (!columns.includes('receiving_account_name')) db.exec("ALTER TABLE investments ADD COLUMN receiving_account_name TEXT DEFAULT ''");
+  if (!columns.includes('last_interest_date')) db.exec('ALTER TABLE investments ADD COLUMN last_interest_date TEXT DEFAULT NULL');
 }
 
 function ensureSettingsColumns(db) {
