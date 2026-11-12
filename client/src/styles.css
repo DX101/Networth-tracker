@@ -22,6 +22,8 @@ button.glow-btn:hover {
 button.danger { background: #7f1d1d; color: #fecaca; }
 button.link { background: transparent; color: #38bdf8; padding: 6px; }
 input, select { width: 100%; border: 1px solid #334155; border-radius: 10px; background: #0f172a; color: #e5e7eb; padding: 10px 12px; }
+select { cursor: pointer; }
+select option { background: #0f172a; color: #e5e7eb; }
 
 .auth-shell { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at top, #134e4a, #020617 45%); }
 .auth-card { width: 360px; display: grid; gap: 14px; padding: 28px; border: 1px solid #1e293b; border-radius: 22px; background: rgba(15, 23, 42, 0.92); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45); }
@@ -155,8 +157,31 @@ th { background: #111827; color: #94a3b8; font-size: 13px; text-transform: upper
 td { color: #e5e7eb; }
 .actions { display: flex; gap: 8px; }
 
-.modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(2, 6, 23, 0.78); padding: 24px; }
-.modal { width: min(760px, 96vw); max-height: 92vh; overflow: auto; display: grid; gap: 18px; border: 1px solid #334155; border-radius: 22px; background: #0f172a; padding: 24px; }
+.modal-backdrop { 
+  position: fixed; 
+  inset: 0; 
+  z-index: 1000;
+  display: grid; 
+  place-items: center; 
+  background: rgba(2, 6, 23, 0.78); 
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding: 24px; 
+}
+.modal { 
+  position: relative;
+  z-index: 1001;
+  pointer-events: auto;
+  width: min(760px, 96vw); 
+  max-height: 92vh; 
+  overflow: auto; 
+  display: grid; 
+  gap: 18px; 
+  border: 1px solid #334155; 
+  border-radius: 22px; 
+  background: #0f172a; 
+  padding: 24px; 
+}
 .modal h2 { margin: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 label { display: grid; gap: 7px; color: #cbd5e1; text-transform: capitalize; }

@@ -20,7 +20,7 @@ const CURRENCIES = {
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DEFAULT_CATEGORIES = {
-  asset: ['Cash', 'Bank Accounts', 'Real Estate', 'Vehicles', 'Crypto', 'Stocks', 'Mutual Funds', 'PF/PPF', 'Gold', 'Other'],
+  asset: ['Cash', 'Bank Accounts', 'Trading / Brokerage Account', 'Real Estate', 'Vehicles', 'Crypto', 'Stocks', 'Mutual Funds', 'ETF', 'PF/PPF', 'Gold', 'Other'],
   liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
   income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
   expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
@@ -441,14 +441,40 @@ function CrudPage({ title, endpoint, fields, columns, settings, performance, cus
   const [error, setError] = useState('');
   const [graphRefresh, setGraphRefresh] = useState(0);
   const singular = title.endsWith('ies') ? title.slice(0, -3) + 'y' : title.replace(/s$/, '');
-  async function load() { setRows(await api(endpoint)); }
+  async function load() {
+    try {
+      setError('');
+      setRows(await api(endpoint));
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Failed to load data');
+    }
+  }
   useEffect(() => { load(); }, [endpoint]);
   async function save(form) {
-    if (form.id) await api(`${endpoint}/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
-    else await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
-    setEditing(null); await load(); setGraphRefresh((value) => value + 1);
+    try {
+      setError('');
+      if (form.id) await api(`${endpoint}/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      else await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
+      setEditing(null);
+      await load();
+      setGraphRefresh((value) => value + 1);
+    } catch (err) {
+      setError(err.message || 'Failed to save item');
+      throw err;
+    }
   }
-  async function remove(id) { if (confirm('Delete this item?')) { await api(`${endpoint}/${id}`, { method: 'DELETE' }); await load(); setGraphRefresh((value) => value + 1); } }
+  async function remove(id) {
+    if (confirm('Delete this item?')) {
+      try {
+        await api(`${endpoint}/${id}`, { method: 'DELETE' });
+        await load();
+        setGraphRefresh((value) => value + 1);
+      } catch (err) {
+        setError(err.message || 'Failed to delete item');
+      }
+    }
+  }
   return <section className="page"><div className="page-head"><h1>{title}</h1><div style={{display: 'flex', gap: '8px'}}>{customAction}<button onClick={() => setEditing({})}>Add {singular}</button></div></div>{error && <div className="error">{error}</div>}<CrudSummary title={title} rows={rows} settings={settings} /><PerformanceGraph config={performance} settings={settings} refreshKey={graphRefresh} liveRows={rows} /><Table columns={columns(settings)} rows={rows} onEdit={(row) => setEditing({ ...row })} onDelete={remove} />{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} ${singular}`} fields={fields} initial={editing} onCancel={() => setEditing(null)} onSave={save} />}</section>;
 }
 
@@ -503,9 +529,81 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
   const [form, setForm] = useState(initial || {});
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
-  useEffect(() => setForm(initial || {}), [initial]);
-  async function submit(e) { e.preventDefault(); setSaving(true); setModalError(''); try { await onSave(form); } catch(err) { setModalError(err.message); } finally { setSaving(false); } }
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><h2>{title}</h2>{modalError && <div className="error">{modalError}</div>}<div className="form-grid">{fields.map(f => { if (f.condition && !f.condition(form)) return null; const resolvedOptions = typeof f.options === 'function' ? f.options(form) : (f.options || []); return <label key={f.name} style={f.type === 'checkbox' ? {display: 'flex', alignItems: 'center', gap: '10px'} : {}}>{f.type === 'checkbox' && <input type="checkbox" checked={!!form[f.name]} onChange={e => setForm({ ...form, [f.name]: e.target.checked })} style={{ width: 'auto' }} />}{f.label}{f.type === 'select' ? <select value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })}><option value="">Select</option>{resolvedOptions.map((o, idx) => { const val = typeof o === 'object' && o !== null ? o.value : o; const lbl = typeof o === 'object' && o !== null ? o.label : o; return <option key={val ?? idx} value={val}>{lbl}</option>; })}</select> : f.type !== 'checkbox' ? <input type={f.type || 'text'} value={form[f.name] ?? ''} onChange={e => setForm({ ...form, [f.name]: e.target.value })} /> : null}</label>; })}</div><div className="modal-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></div></form></div>;
+  const initialId = initial?.id;
+  useEffect(() => {
+    setForm(initial || {});
+  }, [initialId]);
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setModalError('');
+    try {
+      await onSave(form);
+    } catch(err) {
+      setModalError(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onSubmit={submit} onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+        <h2>{title}</h2>
+        {modalError && <div className="error">{modalError}</div>}
+        <div className="form-grid">
+          {fields.map(f => {
+            if (f.condition && !f.condition(form)) return null;
+            const rawOptions = typeof f.options === 'function' ? f.options(form) : (f.options || []);
+            const optionsList = Array.isArray(rawOptions) ? rawOptions : [];
+            const currentVal = form[f.name];
+            const hasCurrent = currentVal !== undefined && currentVal !== null && currentVal !== '' &&
+              optionsList.some(o => (typeof o === 'object' && o !== null ? o.value : o) === currentVal);
+            const resolvedOptions = (currentVal && !hasCurrent) ? [currentVal, ...optionsList] : optionsList;
+
+            return (
+              <label key={f.name} style={f.type === 'checkbox' ? {display: 'flex', alignItems: 'center', gap: '10px'} : {}}>
+                {f.type === 'checkbox' && (
+                  <input
+                    type="checkbox"
+                    checked={!!form[f.name]}
+                    onChange={e => setForm({ ...form, [f.name]: e.target.checked })}
+                    style={{ width: 'auto' }}
+                  />
+                )}
+                {f.label}
+                {f.type === 'select' ? (
+                  <select
+                    value={form[f.name] ?? ''}
+                    onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+                    onClick={e => e.stopPropagation()}
+                    onMouseDown={e => e.stopPropagation()}
+                  >
+                    <option value="">Select</option>
+                    {resolvedOptions.map((o, idx) => {
+                      const val = typeof o === 'object' && o !== null ? o.value : o;
+                      const lbl = typeof o === 'object' && o !== null ? o.label : o;
+                      return <option key={val ?? idx} value={val}>{lbl}</option>;
+                    })}
+                  </select>
+                ) : f.type !== 'checkbox' ? (
+                  <input
+                    type={f.type || 'text'}
+                    value={form[f.name] ?? ''}
+                    onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+                    onClick={e => e.stopPropagation()}
+                  />
+                ) : null}
+              </label>
+            );
+          })}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function ReportModal({ title, reportText, onCancel }) {
@@ -1329,7 +1427,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.4 • Built with ❤️
+                Version 2.3.5 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -3004,8 +3102,9 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
     }
   }, [assets]);
 
+  const initialId = initial?.id;
   useEffect(() => {
-    if (initial && Object.keys(initial).length > 0) {
+    if (initial && (initial.id || Object.keys(initial).length > 0)) {
       setTxType(initial.type || 'expense');
       setForm({
         amount: initial.amount ?? '',
@@ -3029,7 +3128,7 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
         adjust_balance: true
       });
     }
-  }, [initial]);
+  }, [initialId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -3225,6 +3324,8 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
                   required
                   value={form.account_id || ''}
                   onChange={e => setForm({ ...form, account_id: e.target.value })}
+                  onClick={e => e.stopPropagation()}
+                  onMouseDown={e => e.stopPropagation()}
                 >
                   <option value="">-- Source Bank / Asset --</option>
                   {assetList.map(a => (
@@ -3242,6 +3343,8 @@ function TransactionModal({ initial, assets = [], categories, settings, onCancel
                   required
                   value={form.to_account_id || ''}
                   onChange={e => setForm({ ...form, to_account_id: e.target.value })}
+                  onClick={e => e.stopPropagation()}
+                  onMouseDown={e => e.stopPropagation()}
                 >
                   <option value="">-- Destination Bank / Asset --</option>
                   {assetList.map(a => (
@@ -4427,35 +4530,53 @@ function App() {
   const [statementAsset, setStatementAsset] = useState(null);
 
   useEffect(() => {
-    // Process due subscriptions automatically on startup
-    api('/subscriptions/process', { method: 'POST' }).catch(console.error);
-    
     if (!user) return;
-    api('/settings').then(async (data) => {
+
+    // 1. Load user settings and categories immediately
+    api('/settings').then((data) => {
       if (data?.settings) setSettings(data.settings || { currency: 'INR', date_format: 'DD/MM/YYYY' });
       if (data?.categories) setCategories(data.categories || DEFAULT_CATEGORIES);
-      
-      // Auto-fetch fresh exchange rates if foreign currencies exist
+    }).catch(console.error);
+
+    // 2. Defer heavy background processing (subscriptions & foreign exchange rates)
+    // so initial view loading, modal opening, and dropdown menus are silky smooth and never get frozen
+    const timer = setTimeout(async () => {
       try {
-        const [assets, liabilities, investments] = await Promise.all([api('/assets'), api('/liabilities'), api('/investments')]);
-        const base = data?.settings?.currency || 'INR';
+        await api('/subscriptions/process', { method: 'POST' });
+      } catch (e) {
+        console.warn('Startup subscriptions check:', e);
+      }
+
+      try {
+        const [assets, liabilities, investments] = await Promise.all([
+          api('/assets'),
+          api('/liabilities'),
+          api('/investments')
+        ]);
+        const base = settings?.currency || 'INR';
         const currencies = new Set();
         (assets || []).forEach(a => { if (a.currency && a.currency !== base) currencies.add(a.currency); });
         (liabilities || []).forEach(l => { if (l.currency && l.currency !== base) currencies.add(l.currency); });
         (investments || []).forEach(i => { if (i.currency && i.currency !== base) currencies.add(i.currency); });
-        
+
         if (currencies.size > 0) {
           const symbols = Array.from(currencies).join(',');
           const freshRates = await api(`/settings/live-rates?base=${base}&symbols=${symbols}`);
           if (freshRates && Object.keys(freshRates).length > 0) {
-            let currentRates = {};
-            try { currentRates = JSON.parse(data?.settings?.exchange_rates || '{}'); } catch(e) {}
-            const merged = { ...currentRates, ...freshRates };
-            setSettings(prev => ({ ...prev, exchange_rates: JSON.stringify(merged, null, 2) }));
+            setSettings(prev => {
+              let currentRates = {};
+              try { currentRates = JSON.parse(prev?.exchange_rates || '{}'); } catch(e) {}
+              const merged = { ...currentRates, ...freshRates };
+              return { ...prev, exchange_rates: JSON.stringify(merged, null, 2) };
+            });
           }
         }
-      } catch (e) {}
-    }).catch(() => {});
+      } catch (e) {
+        console.warn('Startup live rates check:', e);
+      }
+    }, 2500);
+
+    return () => clearTimeout(timer);
   }, [user]);
 
   function logout() {

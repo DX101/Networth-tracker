@@ -32,6 +32,21 @@ router.get('/', async (req, res) => {
       if (!categories[c.type]) categories[c.type] = [];
       categories[c.type].push(c.name);
     }
+
+    // Ensure all standard category types exist and include defaults
+    const DEFAULT_CATEGORIES = {
+      asset: ['Cash', 'Bank Accounts', 'Trading / Brokerage Account', 'Real Estate', 'Vehicles', 'Crypto', 'Stocks', 'Mutual Funds', 'ETF', 'PF/PPF', 'Gold', 'Other'],
+      liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
+      income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
+      expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
+      investment: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
+      transfer: ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']
+    };
+    for (const [type, defaults] of Object.entries(DEFAULT_CATEGORIES)) {
+      if (!categories[type] || categories[type].length === 0) {
+        categories[type] = defaults;
+      }
+    }
     
     res.json({ settings, categories });
   } catch (err) {
@@ -53,7 +68,9 @@ router.get('/live-rates', async (req, res) => {
   for (const sym of symbolList) {
     try {
       const ticker = `${sym}${base}=X`;
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`, {
+        signal: AbortSignal.timeout(3000)
+      });
       if (response.ok) {
         const data = await response.json();
         const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;

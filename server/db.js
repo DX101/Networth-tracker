@@ -441,6 +441,16 @@ function ensureCategoriesColumns(db) {
       insertCat.run(cat, 'transfer');
     }
   }
+
+  // Ensure key asset categories exist
+  const ensureCat = (name, type) => {
+    const found = db.prepare('SELECT id FROM categories WHERE name = ? AND type = ?').get(name, type);
+    if (!found) {
+      db.prepare('INSERT INTO categories (name, type) VALUES (?, ?)').run(name, type);
+    }
+  };
+  ensureCat('Trading / Brokerage Account', 'asset');
+  ensureCat('ETF', 'asset');
 }
 
 function ensureInsuranceTable(db) {
@@ -475,11 +485,13 @@ function seedDefaultCategories(db) {
   // Asset categories
   insertCat('Cash', 'asset');
   insertCat('Bank Accounts', 'asset');
+  insertCat('Trading / Brokerage Account', 'asset');
   insertCat('Real Estate', 'asset');
   insertCat('Vehicles', 'asset');
   insertCat('Crypto', 'asset');
   insertCat('Stocks', 'asset');
   insertCat('Mutual Funds', 'asset');
+  insertCat('ETF', 'asset');
   insertCat('PF/PPF', 'asset');
   insertCat('Gold', 'asset');
   insertCat('Other', 'asset');
