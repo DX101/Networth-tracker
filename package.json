@@ -1,6 +1,6 @@
 {
   "name": "networth-tracker-v2",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "description": "NetWorth Tracker v2 - v1 feature-parity rebuild",
   "private": true,
   "main": "electron/main.js",

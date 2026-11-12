@@ -116,25 +116,50 @@ router.put('/:id', async (req, res) => {
 router.post('/sync-prices', async (req, res) => {
   try {
     const db = getDb();
-    const rows = db.prepare('SELECT DISTINCT ticker, asset_name FROM investments WHERE ticker IS NOT NULL AND ticker != ""').all();
+    const rows = db.prepare('SELECT DISTINCT ticker, asset_name, currency FROM investments WHERE ticker IS NOT NULL AND ticker != ""').all();
     if (rows.length === 0) return res.json({ message: 'No tickers to sync', updated: 0 });
 
+    const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
+    let rates = {};
+    try { rates = JSON.parse(settings.exchange_rates || '{}'); } catch(e) {}
+    const usdRate = Number(rates.USD) || 94.0;
+
     let updatedCount = 0;
-    const updateStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE ticker=?");
+    const updateStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE ticker=? AND (currency=? OR (currency IS NULL AND ?='INR'))");
     
-    for (const row of rows) {
+    // Group by ticker to avoid redundant Yahoo Finance requests
+    const tickersMap = {};
+    for (const r of rows) {
+      if (!tickersMap[r.ticker]) tickersMap[r.ticker] = [];
+      tickersMap[r.ticker].push(r);
+    }
+
+    for (const [ticker, items] of Object.entries(tickersMap)) {
       try {
-        const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${row.ticker}`);
+        const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`, {
+          signal: AbortSignal.timeout(4000)
+        });
         if (response.ok) {
           const data = await response.json();
-          const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-          if (price !== undefined && price !== null) {
-            updateStmt.run(price, row.ticker);
-            updatedCount++;
+          const rawPrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          const quoteCurrency = data?.chart?.result?.[0]?.meta?.currency || 'USD';
+          if (rawPrice !== undefined && rawPrice !== null) {
+            for (const item of items) {
+              const itemCur = item.currency || 'INR';
+              let finalPrice = rawPrice;
+              // If quote is USD and item is tracked in INR:
+              if (itemCur === 'INR' && quoteCurrency === 'USD') {
+                finalPrice = Number((rawPrice * usdRate).toFixed(2));
+              } else if (itemCur === 'USD' && quoteCurrency === 'INR') {
+                finalPrice = Number((rawPrice / usdRate).toFixed(4));
+              }
+              updateStmt.run(finalPrice, ticker, item.currency, item.currency);
+              updatedCount++;
+            }
           }
         }
       } catch (e) {
-        console.error(`Failed to fetch price for ${row.ticker}`, e);
+        console.error(`Failed to fetch price for ${ticker}`, e);
       }
     }
     

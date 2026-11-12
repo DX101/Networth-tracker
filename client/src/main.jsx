@@ -92,6 +92,74 @@ function convertValue(amount, fromCurrency, settings) {
   return num;
 }
 
+function getRate(fromCur, toCur, settings) {
+  if (!fromCur || !toCur || fromCur === toCur) return 1;
+  const base = settings?.currency || 'INR';
+  if (toCur === base) {
+    return convertValue(1, fromCur, settings) || 1;
+  }
+  if (fromCur === base) {
+    const r = convertValue(1, toCur, settings);
+    return r > 0 ? (1 / r) : 1;
+  }
+  const toBaseA = convertValue(1, fromCur, settings) || 1;
+  const toBaseB = convertValue(1, toCur, settings) || 1;
+  return toBaseA / toBaseB;
+}
+
+function getDualCurrencyStats(item, settings) {
+  const isForeign = item.currency && item.currency !== settings.currency;
+  const isUsdStockTrackedInInr = !isForeign && item.ticker && !item.ticker.includes('.') && !item.ticker.includes(':');
+  const usdRate = convertValue(1, 'USD', settings) || 94.0;
+
+  if (isForeign) {
+    return {
+      hasDual: true,
+      nativeCurrency: item.currency,
+      inrAvgBuy: convertValue(item.avg_buy_price, item.currency, settings),
+      nativeAvgBuy: item.avg_buy_price,
+      inrCurrentPrice: convertValue(item.current_price, item.currency, settings),
+      nativeCurrentPrice: item.current_price,
+      inrInvested: convertValue(item.total_invested, item.currency, settings),
+      nativeInvested: item.total_invested,
+      inrValue: convertValue(item.current_value, item.currency, settings),
+      nativeValue: item.current_value,
+      inrPnl: convertValue(item.pnl, item.currency, settings),
+      nativePnl: item.pnl,
+    };
+  } else if (isUsdStockTrackedInInr) {
+    return {
+      hasDual: true,
+      nativeCurrency: 'USD',
+      inrAvgBuy: item.avg_buy_price,
+      nativeAvgBuy: item.avg_buy_price / usdRate,
+      inrCurrentPrice: item.current_price,
+      nativeCurrentPrice: item.current_price / usdRate,
+      inrInvested: item.total_invested,
+      nativeInvested: item.total_invested / usdRate,
+      inrValue: item.current_value,
+      nativeValue: item.current_value / usdRate,
+      inrPnl: item.pnl,
+      nativePnl: item.pnl / usdRate,
+    };
+  }
+
+  return {
+    hasDual: false,
+    nativeCurrency: item.currency || settings.currency,
+    inrAvgBuy: item.avg_buy_price,
+    nativeAvgBuy: item.avg_buy_price,
+    inrCurrentPrice: item.current_price,
+    nativeCurrentPrice: item.current_price,
+    inrInvested: item.total_invested,
+    nativeInvested: item.total_invested,
+    inrValue: item.current_value,
+    nativeValue: item.current_value,
+    inrPnl: item.pnl,
+    nativePnl: item.pnl,
+  };
+}
+
 function MiniRow({ label, value, settings, tone = '', suffix = '' }) {
   return <div className="mini-row"><span>{label}</span><strong className={tone}>{money(value, settings)}{suffix}</strong></div>;
 }
@@ -475,7 +543,7 @@ function CrudPage({ title, endpoint, fields, columns, settings, performance, cus
       }
     }
   }
-  return <section className="page"><div className="page-head"><h1>{title}</h1><div style={{display: 'flex', gap: '8px'}}>{customAction}<button onClick={() => setEditing({})}>Add {singular}</button></div></div>{error && <div className="error">{error}</div>}<CrudSummary title={title} rows={rows} settings={settings} /><PerformanceGraph config={performance} settings={settings} refreshKey={graphRefresh} liveRows={rows} /><Table columns={columns(settings)} rows={rows} onEdit={(row) => setEditing({ ...row })} onDelete={remove} />{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} ${singular}`} fields={fields} initial={editing} onCancel={() => setEditing(null)} onSave={save} />}</section>;
+  return <section className="page"><div className="page-head"><h1>{title}</h1><div style={{display: 'flex', gap: '8px'}}>{customAction}<button onClick={() => setEditing({})}>Add {singular}</button></div></div>{error && <div className="error">{error}</div>}<CrudSummary title={title} rows={rows} settings={settings} /><PerformanceGraph config={performance} settings={settings} refreshKey={graphRefresh} liveRows={rows} /><Table columns={columns(settings)} rows={rows} onEdit={(row) => setEditing({ ...row })} onDelete={remove} />{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} ${singular}`} fields={fields} initial={editing} onCancel={() => setEditing(null)} onSave={save} settings={settings} />}</section>;
 }
 
 function BudgetPlanner({ settings }) {
@@ -525,7 +593,7 @@ function BudgetPlanner({ settings }) {
   return <section className="page budget-page"><div className="page-head"><div><h1>Budget Planner</h1><p className="muted">Independent budget planning with manual categories, date range, expense tracking.</p></div><button onClick={() => setEditing({ start_date: `${year}-${String(month).padStart(2, '0')}-01`, end_date: `${year}-${String(month).padStart(2, '0')}-28` })}>+ Add Budget</button></div><div className="budget-filters"><select value={month} onChange={e => setMonth(Number(e.target.value))}>{MONTHS.map((l, i) => <option key={l} value={i + 1}>{l}</option>)}</select><select value={year} onChange={e => setYear(Number(e.target.value))}>{yearOptions.map(v => <option key={v} value={v}>{v}</option>)}</select></div>{error && <div className="error">{error}</div>}<div className="cards budget-cards"><div className="card stat-card stat-teal"><span>Total Budget</span><strong>{money(summary.total_budget, settings)}</strong></div><div className="card stat-card stat-yellow"><span>Total Spent</span><strong>{money(summary.total_spent, settings)}</strong></div><div className="card stat-card stat-emerald"><span>Remaining</span><strong>{money(summary.total_remaining, settings)}</strong></div><div className="card stat-card stat-blue"><span>Budget Used</span><strong>{Number(summary.percent_used || 0).toFixed(1)}%</strong></div></div><div className="budget-layout"><Chart title="Budget vs. Actual Spending"><BarChart data={chartRows}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b" /><XAxis dataKey="name" /><YAxis /><Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(20,184,166,0.08)' }} /><Bar dataKey="Budget" fill="#14b8a6" radius={[8,8,0,0]} /><Bar dataKey="Spent" fill="#f59e0b" radius={[8,8,0,0]} /></BarChart></Chart><div className="budget-breakdown card"><h3>Category Breakdown</h3>{summary.categories.length === 0 ? <p className="muted">No budgets yet.</p> : summary.categories.map(item => { const p = Number(item.percent_used || 0); return <div className="budget-progress" key={item.id}><div className="budget-progress-head"><strong>{item.category}</strong><span>{money(item.spent, settings)} / {money(item.monthly_limit, settings)} {'\u2022'} {p.toFixed(1)}%</span></div><div className="budget-track"><div style={{ width: `${Math.min(p, 100)}%` }} /></div></div>; })}</div></div><div className="budget-list">{budgets.map(b => <div className="budget-detail card" key={b.id} id={`budget-card-${b.id}`}><div className="budget-detail-head"><div><h3>{b.category}</h3><p className="muted">{formatDate(b.start_date, settings)}{b.end_date ? ` - ${formatDate(b.end_date, settings)}` : ''}</p></div><div className="actions" data-html2canvas-ignore="true"><button className="secondary" onClick={() => exportBudgetToPDF(b)}>Export PDF</button><button className="secondary" onClick={() => setEditing(b)}>Edit</button><button className="danger" onClick={() => removeBudget(b.id)}>Delete</button></div></div><div className="budget-metrics"><MiniRow label="Budget" value={b.monthly_limit} settings={settings} tone="good" /><MiniRow label="Spent" value={b.spent} settings={settings} tone="bad" /><MiniRow label="Remaining" value={b.remaining} settings={settings} tone={b.remaining >= 0 ? 'good' : 'bad'} /><MiniRow label="Used" value={Number(b.percent_used || 0).toFixed(1)} settings={{ currency_symbol: '' }} suffix="%" /></div><div className="budget-detail-grid"><div><div className="section-title"><h3>Expenses</h3><button data-html2canvas-ignore="true" onClick={() => setExpenseBudget(b)}>+ Add Expense</button></div><div className="budget-expenses">{b.expenses?.length ? b.expenses.map(e => <div className="budget-expense-row" key={e.id}><div><strong>{e.title}</strong><small>{formatDate(e.date, settings)}{e.notes ? ` \u2022 ${e.notes}` : ''}</small></div><div className="actions"><span>{money(e.amount, settings)}</span><button data-html2canvas-ignore="true" className="danger" onClick={() => removeExpense(b.id, e.id)}>Delete</button></div></div>) : <p className="muted">No expenses yet.</p>}</div></div>{(() => { const pieData = [...(b.expenses || []).map(e => ({ name: e.title, value: Number(e.amount || 0) }))]; const rem = Math.max(Number(b.remaining || 0), 0); if (rem > 0) pieData.push({ name: 'Remaining', value: rem }); if (pieData.length === 0) pieData.push({ name: 'Empty', value: 1 }); return <div className="chart-card"><div className="chart-head"><h3>{b.category} Expense Split</h3></div><div style={{ display: 'flex', justifyContent: 'center' }}><PieChart width={350} height={260}><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={88} paddingAngle={pieData.length > 1 ? 3 : 0}>{pieData.map((entry, i) => <Cell key={i} fill={entry.name === 'Remaining' ? '#334155' : entry.name === 'Empty' ? '#1e293b' : COLORS[i % COLORS.length]} />)}</Pie><Tooltip content={<PremiumTooltip settings={settings} />} /></PieChart></div></div>; })()}</div></div>)}</div>{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} Budget`} fields={budgetFields} initial={editing} onCancel={() => setEditing(null)} onSave={saveBudget} />}{expenseBudget && <Modal title={`Add Expense \u2022 ${expenseBudget.category}`} fields={expenseFields} initial={{ date: new Date().toISOString().slice(0, 10) }} onCancel={() => setExpenseBudget(null)} onSave={addExpense} />}</section>;
 }
 
-function Modal({ title, fields, initial, onCancel, onSave }) {
+function Modal({ title, fields, initial, onCancel, onSave, settings }) {
   const [form, setForm] = useState(initial || {});
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -533,6 +601,7 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
   useEffect(() => {
     setForm(initial || {});
   }, [initialId]);
+
   async function submit(e) {
     e.preventDefault();
     setSaving(true);
@@ -545,6 +614,23 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
       setSaving(false);
     }
   }
+
+  const handleCurrencyChange = (newCur) => {
+    const oldCur = form.currency || initial?.currency || settings?.currency || 'INR';
+    if (oldCur && newCur && oldCur !== newCur && settings) {
+      const ratio = getRate(oldCur, newCur, settings);
+      const next = { ...form, currency: newCur };
+      ['buy_price', 'current_price', 'current_value', 'minimum_payment'].forEach(k => {
+        if (form[k] !== undefined && form[k] !== '' && !isNaN(Number(form[k]))) {
+          next[k] = Number((Number(form[k]) * ratio).toFixed(2));
+        }
+      });
+      setForm(next);
+    } else {
+      setForm({ ...form, currency: newCur });
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <form className="modal" onSubmit={submit} onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
@@ -560,6 +646,11 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
               optionsList.some(o => (typeof o === 'object' && o !== null ? o.value : o) === currentVal);
             const resolvedOptions = (currentVal && !hasCurrent) ? [currentVal, ...optionsList] : optionsList;
 
+            const isPriceField = ['buy_price', 'current_price', 'current_value'].includes(f.name);
+            const activeCurrency = form.currency || initial?.currency || (settings?.currency || 'INR');
+            const baseCurrency = settings?.currency || 'INR';
+            const isForeignCurrency = activeCurrency !== baseCurrency;
+
             return (
               <label key={f.name} style={f.type === 'checkbox' ? {display: 'flex', alignItems: 'center', gap: '10px'} : {}}>
                 {f.type === 'checkbox' && (
@@ -570,11 +661,21 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
                     style={{ width: 'auto' }}
                   />
                 )}
-                {f.label}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{f.label}</span>
+                  {isPriceField && isForeignCurrency && (
+                    <span style={{ fontSize: '11px', color: '#38bdf8' }}>
+                      ({CURRENCIES[activeCurrency] || activeCurrency})
+                    </span>
+                  )}
+                </div>
                 {f.type === 'select' ? (
                   <select
                     value={form[f.name] ?? ''}
-                    onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+                    onChange={e => {
+                      if (f.name === 'currency') handleCurrencyChange(e.target.value);
+                      else setForm({ ...form, [f.name]: e.target.value });
+                    }}
                     onClick={e => e.stopPropagation()}
                     onMouseDown={e => e.stopPropagation()}
                   >
@@ -586,12 +687,36 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
                     })}
                   </select>
                 ) : f.type !== 'checkbox' ? (
-                  <input
-                    type={f.type || 'text'}
-                    value={form[f.name] ?? ''}
-                    onChange={e => setForm({ ...form, [f.name]: e.target.value })}
-                    onClick={e => e.stopPropagation()}
-                  />
+                  <div>
+                    <input
+                      type={f.type || 'text'}
+                      value={form[f.name] ?? ''}
+                      onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+                      onClick={e => e.stopPropagation()}
+                    />
+                    {isPriceField && isForeignCurrency && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', fontSize: '11px', color: '#38bdf8' }}>
+                        <span>
+                          ≈ {money(convertValue(form[f.name] || 0, activeCurrency, settings), settings)}
+                        </span>
+                        <button
+                          type="button"
+                          style={{ background: 'transparent', border: 'none', color: '#5eead4', cursor: 'pointer', fontSize: '11px', padding: '0 4px', textDecoration: 'underline' }}
+                          onClick={() => {
+                            const curInr = convertValue(form[f.name] || 0, activeCurrency, settings);
+                            const inputInr = prompt(`Enter ${f.label} in ${baseCurrency} (${settings?.currency_symbol || '₹'}):`, curInr ? curInr.toFixed(2) : '');
+                            if (inputInr !== null && !isNaN(Number(inputInr)) && Number(inputInr) >= 0) {
+                              const rate = convertValue(1, activeCurrency, settings) || 1;
+                              const convertedBack = Number((Number(inputInr) / rate).toFixed(4));
+                              setForm(prev => ({ ...prev, [f.name]: convertedBack }));
+                            }
+                          }}
+                        >
+                          ✏️ Edit in {baseCurrency}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : null}
               </label>
             );
@@ -600,6 +725,98 @@ function Modal({ title, fields, initial, onCancel, onSave }) {
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
           <button disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function UpdatePriceModal({ asset, settings, onCancel, onSave }) {
+  const isForeign = asset.currency && asset.currency !== settings.currency;
+  const rate = isForeign ? (convertValue(1, asset.currency, settings) || 94.0) : 1;
+  const initialNative = Number(asset.current_price || 0);
+  const initialInr = isForeign ? (initialNative * rate) : initialNative;
+
+  const [nativePrice, setNativePrice] = useState(initialNative);
+  const [inrPrice, setInrPrice] = useState(Number(initialInr.toFixed(2)));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleNativeChange = (val) => {
+    setNativePrice(val);
+    const num = Number(val);
+    if (!isNaN(num) && rate > 0) {
+      setInrPrice(Number((num * rate).toFixed(2)));
+    }
+  };
+
+  const handleInrChange = (val) => {
+    setInrPrice(val);
+    const num = Number(val);
+    if (!isNaN(num) && rate > 0) {
+      setNativePrice(Number((num / rate).toFixed(4)));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const finalPrice = Number(nativePrice);
+    if (isNaN(finalPrice) || finalPrice <= 0) {
+      setError('Please enter a valid price greater than 0.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(finalPrice);
+    } catch (err) {
+      setError(err.message || 'Failed to update price');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onSubmit={handleSubmit} onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+        <h2>Update Price • {asset.asset_name}</h2>
+        {error && <div className="error">{error}</div>}
+
+        <div style={{ display: 'grid', gap: '14px' }}>
+          <label>
+            Price in {asset.currency || settings.currency} ({CURRENCIES[asset.currency] || settings.currency_symbol || '₹'})
+            <input 
+              type="number" 
+              step="any" 
+              required 
+              value={nativePrice} 
+              onChange={e => handleNativeChange(e.target.value)} 
+            />
+          </label>
+
+          {isForeign && (
+            <div style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid #0284c7', borderRadius: '10px', padding: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 600, marginBottom: '6px' }}>
+                🇮🇳 Live INR Equivalent (1 {asset.currency} ≈ {money(rate, settings)})
+              </div>
+              <label style={{ fontSize: '13px' }}>
+                Price in INR (₹)
+                <input 
+                  type="number" 
+                  step="any" 
+                  value={inrPrice} 
+                  onChange={e => handleInrChange(e.target.value)} 
+                  placeholder="Enter price in INR"
+                />
+              </label>
+              <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                Editing either INR or {asset.currency} auto-calculates the other in real time.
+              </small>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '16px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button disabled={saving}>{saving ? 'Updating...' : 'Update Price'}</button>
         </div>
       </form>
     </div>
@@ -1427,7 +1644,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.5 • Built with ❤️
+                Version 2.3.6 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -1749,6 +1966,7 @@ function PortfolioTracker({ settings, categories }) {
   const [graphRefresh, setGraphRefresh] = useState(0);
   const [expandedAsset, setExpandedAsset] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [currencyView, setCurrencyView] = useState(() => localStorage.getItem('portfolio_currency_view') || 'inr');
 
   async function syncPrices() {
     setSyncing(true);
@@ -1860,6 +2078,46 @@ function PortfolioTracker({ settings, categories }) {
       <PerformanceGraph config={performanceConfig} settings={settings} refreshKey={graphRefresh} liveRows={rows} />
       
       <div className="card" style={{ marginTop: '20px', padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap', gap: '10px' }}>
+          <h3 style={{ margin: 0, fontSize: '16px' }}>Holdings</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>Display Currency:</span>
+            <div style={{ display: 'inline-flex', background: '#020617', border: '1px solid #334155', borderRadius: '8px', padding: '2px', gap: '2px' }}>
+              <button
+                type="button"
+                onClick={() => { setCurrencyView('inr'); localStorage.setItem('portfolio_currency_view', 'inr'); }}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: currencyView === 'inr' ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : 'transparent',
+                  color: currencyView === 'inr' ? '#fff' : '#94a3b8',
+                  fontWeight: currencyView === 'inr' ? '700' : '400'
+                }}
+              >
+                🇮🇳 Actual INR (Base)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCurrencyView('native'); localStorage.setItem('portfolio_currency_view', 'native'); }}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: currencyView === 'native' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'transparent',
+                  color: currencyView === 'native' ? '#fff' : '#94a3b8',
+                  fontWeight: currencyView === 'native' ? '700' : '400'
+                }}
+              >
+                🌐 Native Currency
+              </button>
+            </div>
+          </div>
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ margin: 0, width: '100%' }}>
             <thead>
@@ -1876,115 +2134,137 @@ function PortfolioTracker({ settings, categories }) {
               </tr>
             </thead>
             <tbody>
-              {portfolio.map(p => (
-                <React.Fragment key={p.asset_name + '_' + (p.currency || '')}>
-                  <tr 
-                    style={{ cursor: 'pointer', borderBottom: '1px solid #1e293b' }} 
-                    onClick={() => setExpandedAsset(expandedAsset === p.asset_name + '_' + (p.currency || '') ? null : p.asset_name + '_' + (p.currency || ''))}
-                  >
-                    <td style={{ fontWeight: 500 }}>
-                      <span style={{ display: 'inline-block', width: '20px', color: '#94a3b8' }}>
-                        {expandedAsset === p.asset_name + '_' + (p.currency || '') ? '▼' : '▶'}
-                      </span>
-                      {p.asset_name} {p.currency && <span className="badge" style={{ marginLeft: '6px', fontSize: '11px', background: p.currency === settings?.currency ? '#1e293b' : '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px' }}>{p.currency}</span>}
-                    </td>
-                    <td><span className="badge" style={{ background: '#334155', color: '#e2e8f0', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.category}</span></td>
-                    <td style={{ textAlign: 'right' }}>{p.total_quantity}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      {money(p.avg_buy_price, { currency: p.currency || settings?.currency })}
-                      {p.currency && p.currency !== settings?.currency && (
-                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                          ≈ {money(convertValue(p.avg_buy_price, p.currency, settings), settings)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                      {money(p.current_price, { currency: p.currency || settings?.currency })}
-                      {p.currency && p.currency !== settings?.currency && (
-                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                          ≈ {money(convertValue(p.current_price, p.currency, settings), settings)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {money(p.total_invested, { currency: p.currency || settings?.currency })}
-                      {p.currency && p.currency !== settings?.currency && (
-                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                          ≈ {money(convertValue(p.total_invested, p.currency, settings), settings)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                      {money(p.current_value, { currency: p.currency || settings?.currency })}
-                      {p.currency && p.currency !== settings?.currency && (
-                        <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '2px', fontWeight: 600 }}>
-                          ≈ {money(convertValue(p.current_value, p.currency, settings), settings)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right', color: p.pnl >= 0 ? '#10b981' : '#ef4444' }}>
-                      {p.pnl > 0 ? '+' : ''}{money(p.pnl, { currency: p.currency || settings?.currency })}
-                      {p.currency && p.currency !== settings?.currency && (
-                        <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '2px' }}>
-                          ≈ {p.pnl > 0 ? '+' : ''}{money(convertValue(p.pnl, p.currency, settings), settings)}
-                        </div>
-                      )}
-                      <small style={{ display: 'block' }}>{p.pnl_percent.toFixed(2)}%</small>
-                    </td>
-                    <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                      <button className="icon-btn edit" style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} onClick={(e) => {
-                        e.stopPropagation();
-                        setUpdatingPrice(p);
-                      }}>Update Price</button>
-                    </td>
-                  </tr>
-                  
-                  {expandedAsset === p.asset_name + '_' + (p.currency || '') && p.lots.map(lot => (
-                    <tr key={lot.id} style={{ backgroundColor: 'rgba(0,0,0,0.1)', borderBottom: '1px solid #1e293b' }}>
-                      <td colSpan="2" style={{ paddingLeft: '40px', color: '#94a3b8', fontSize: '13px' }}>
-                        ↳ {formatDate(lot.buy_date, settings)} {lot.is_sip ? '(SIP)' : ''} {lot.platform ? `via ${lot.platform}` : ''}
-                        {lot.interest_rate > 0 ? ` • ${lot.interest_rate}% Yield` : ''}
-                        {lot.maturity_date ? ` • Mat: ${formatDate(lot.maturity_date, settings)}` : ''}
+              {portfolio.map(p => {
+                const stats = getDualCurrencyStats(p, settings);
+                const showInrPrimary = currencyView === 'inr' || !stats.hasDual;
+
+                return (
+                  <React.Fragment key={p.asset_name + '_' + (p.currency || '')}>
+                    <tr 
+                      style={{ cursor: 'pointer', borderBottom: '1px solid #1e293b' }} 
+                      onClick={() => setExpandedAsset(expandedAsset === p.asset_name + '_' + (p.currency || '') ? null : p.asset_name + '_' + (p.currency || ''))}
+                    >
+                      <td style={{ fontWeight: 500 }}>
+                        <span style={{ display: 'inline-block', width: '20px', color: '#94a3b8' }}>
+                          {expandedAsset === p.asset_name + '_' + (p.currency || '') ? '▼' : '▶'}
+                        </span>
+                        {p.asset_name} {stats.hasDual && <span className="badge" style={{ marginLeft: '6px', fontSize: '11px', background: stats.nativeCurrency === settings?.currency ? '#1e293b' : '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px' }}>{stats.nativeCurrency}</span>}
                       </td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>{lot.quantity}</td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
-                        {money(lot.buy_price, { currency: p.currency || settings?.currency })}
-                        {p.currency && p.currency !== settings?.currency && (
-                          <div style={{ fontSize: '10px', color: '#64748b' }}>
-                            ≈ {money(convertValue(lot.buy_price, p.currency, settings), settings)}
+                      <td><span className="badge" style={{ background: '#334155', color: '#e2e8f0', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.category}</span></td>
+                      <td style={{ textAlign: 'right' }}>{p.total_quantity}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div>{money(showInrPrimary ? stats.inrAvgBuy : stats.nativeAvgBuy, showInrPrimary ? settings : { currency: stats.nativeCurrency })}</div>
+                        {stats.hasDual && (
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            {showInrPrimary ? `${money(stats.nativeAvgBuy, { currency: stats.nativeCurrency })} ${stats.nativeCurrency}` : `≈ ${money(stats.inrAvgBuy, settings)}`}
                           </div>
                         )}
                       </td>
-                      <td></td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
-                        {money(lot.buy_price * lot.quantity, { currency: p.currency || settings?.currency })}
-                        {p.currency && p.currency !== settings?.currency && (
-                          <div style={{ fontSize: '10px', color: '#64748b' }}>
-                            ≈ {money(convertValue(lot.buy_price * lot.quantity, p.currency, settings), settings)}
+                      <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                        <div>{money(showInrPrimary ? stats.inrCurrentPrice : stats.nativeCurrentPrice, showInrPrimary ? settings : { currency: stats.nativeCurrency })}</div>
+                        {stats.hasDual && (
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            {showInrPrimary ? `${money(stats.nativeCurrentPrice, { currency: stats.nativeCurrency })} ${stats.nativeCurrency}` : `≈ ${money(stats.inrCurrentPrice, settings)}`}
                           </div>
                         )}
                       </td>
-                      <td></td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
-                        {money((p.current_price - lot.buy_price) * lot.quantity, { currency: p.currency || settings?.currency })}
-                        {p.currency && p.currency !== settings?.currency && (
-                          <div style={{ fontSize: '10px', color: '#64748b' }}>
-                            ≈ {money(convertValue((p.current_price - lot.buy_price) * lot.quantity, p.currency, settings), settings)}
+                      <td style={{ textAlign: 'right' }}>
+                        <div>{money(showInrPrimary ? stats.inrInvested : stats.nativeInvested, showInrPrimary ? settings : { currency: stats.nativeCurrency })}</div>
+                        {stats.hasDual && (
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            {showInrPrimary ? `${money(stats.nativeInvested, { currency: stats.nativeCurrency })} ${stats.nativeCurrency}` : `≈ ${money(stats.inrInvested, settings)}`}
                           </div>
                         )}
                       </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button className="icon-btn edit" onClick={() => setEditing(lot)}>
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                        </button>
-                        <button className="icon-btn delete" onClick={() => remove(lot.id)}>
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                        </button>
+                      <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                        <div style={{ color: showInrPrimary ? '#38bdf8' : '#f8fafc', fontWeight: 600 }}>
+                          {money(showInrPrimary ? stats.inrValue : stats.nativeValue, showInrPrimary ? settings : { currency: stats.nativeCurrency })}
+                        </div>
+                        {stats.hasDual && (
+                          <div style={{ fontSize: '11px', color: showInrPrimary ? '#94a3b8' : '#38bdf8', marginTop: '2px', fontWeight: showInrPrimary ? 400 : 600 }}>
+                            {showInrPrimary ? `${money(stats.nativeValue, { currency: stats.nativeCurrency })} ${stats.nativeCurrency}` : `≈ ${money(stats.inrValue, settings)}`}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', color: (showInrPrimary ? stats.inrPnl : stats.nativePnl) >= 0 ? '#10b981' : '#ef4444' }}>
+                        {showInrPrimary ? (stats.inrPnl > 0 ? '+' : '') + money(stats.inrPnl, settings) : (stats.nativePnl > 0 ? '+' : '') + money(stats.nativePnl, { currency: stats.nativeCurrency })}
+                        {stats.hasDual && (
+                          <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>
+                            {showInrPrimary ? `${stats.nativePnl > 0 ? '+' : ''}${money(stats.nativePnl, { currency: stats.nativeCurrency })} ${stats.nativeCurrency}` : `≈ ${stats.inrPnl > 0 ? '+' : ''}${money(stats.inrPnl, settings)}`}
+                          </div>
+                        )}
+                        <small style={{ display: 'block' }}>{p.pnl_percent.toFixed(2)}%</small>
+                      </td>
+                      <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <button className="icon-btn edit" style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} onClick={(e) => {
+                          e.stopPropagation();
+                          setUpdatingPrice(p);
+                        }}>Update Price</button>
                       </td>
                     </tr>
-                  ))}
-                </React.Fragment>
-              ))}
+                    
+                    {expandedAsset === p.asset_name + '_' + (p.currency || '') && p.lots.map(lot => {
+                      const lotStats = getDualCurrencyStats({
+                        asset_name: p.asset_name,
+                        currency: p.currency,
+                        ticker: p.lots[0]?.ticker,
+                        avg_buy_price: Number(lot.buy_price || 0),
+                        current_price: Number(p.current_price || 0),
+                        total_invested: Number(lot.buy_price || 0) * Number(lot.quantity || 1),
+                        current_value: Number(p.current_price || 0) * Number(lot.quantity || 1),
+                        pnl: (Number(p.current_price || 0) - Number(lot.buy_price || 0)) * Number(lot.quantity || 1)
+                      }, settings);
+
+                      return (
+                        <tr key={lot.id} style={{ backgroundColor: 'rgba(0,0,0,0.1)', borderBottom: '1px solid #1e293b' }}>
+                          <td colSpan="2" style={{ paddingLeft: '40px', color: '#94a3b8', fontSize: '13px' }}>
+                            ↳ {formatDate(lot.buy_date, settings)} {lot.is_sip ? '(SIP)' : ''} {lot.platform ? `via ${lot.platform}` : ''}
+                            {lot.interest_rate > 0 ? ` • ${lot.interest_rate}% Yield` : ''}
+                            {lot.maturity_date ? ` • Mat: ${formatDate(lot.maturity_date, settings)}` : ''}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: '13px' }}>{lot.quantity}</td>
+                          <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                            <div>{money(showInrPrimary ? lotStats.inrAvgBuy : lotStats.nativeAvgBuy, showInrPrimary ? settings : { currency: lotStats.nativeCurrency })}</div>
+                            {lotStats.hasDual && (
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                {showInrPrimary ? `${money(lotStats.nativeAvgBuy, { currency: lotStats.nativeCurrency })} ${lotStats.nativeCurrency}` : `≈ ${money(lotStats.inrAvgBuy, settings)}`}
+                              </div>
+                            )}
+                          </td>
+                          <td></td>
+                          <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                            <div>{money(showInrPrimary ? lotStats.inrInvested : lotStats.nativeInvested, showInrPrimary ? settings : { currency: lotStats.nativeCurrency })}</div>
+                            {lotStats.hasDual && (
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                {showInrPrimary ? `${money(lotStats.nativeInvested, { currency: lotStats.nativeCurrency })} ${lotStats.nativeCurrency}` : `≈ ${money(lotStats.inrInvested, settings)}`}
+                              </div>
+                            )}
+                          </td>
+                          <td></td>
+                          <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                            <div style={{ color: (showInrPrimary ? lotStats.inrPnl : lotStats.nativePnl) >= 0 ? '#10b981' : '#ef4444' }}>
+                              {showInrPrimary ? (lotStats.inrPnl > 0 ? '+' : '') + money(lotStats.inrPnl, settings) : (lotStats.nativePnl > 0 ? '+' : '') + money(lotStats.nativePnl, { currency: lotStats.nativeCurrency })}
+                            </div>
+                            {lotStats.hasDual && (
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                {showInrPrimary ? `${lotStats.nativePnl > 0 ? '+' : ''}${money(lotStats.nativePnl, { currency: lotStats.nativeCurrency })} ${lotStats.nativeCurrency}` : `≈ ${stats.inrPnl > 0 ? '+' : ''}${money(lotStats.inrPnl, settings)}`}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button className="icon-btn edit" onClick={() => setEditing(lot)}>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                            </button>
+                            <button className="icon-btn delete" onClick={() => remove(lot.id)}>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
               {portfolio.length === 0 && (
                 <tr>
                   <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
@@ -1998,20 +2278,15 @@ function PortfolioTracker({ settings, categories }) {
       </div>
 
       {editing && (
-        <Modal title={`${editing.id ? 'Edit' : 'Add'} Investment Lot`} fields={fields} initial={editing} onCancel={() => setEditing(null)} onSave={save} />
+        <Modal title={`${editing.id ? 'Edit' : 'Add'} Investment Lot`} fields={fields} initial={editing} onCancel={() => setEditing(null)} onSave={save} settings={settings} />
       )}
       {updatingPrice && (
-        <Modal 
-          title={`Update Price \u2022 ${updatingPrice.asset_name}`}
-          fields={[{ name: 'newPrice', label: 'New Price', type: 'number', required: true }]}
-          initial={{ newPrice: updatingPrice.current_price }}
+        <UpdatePriceModal 
+          asset={updatingPrice}
+          settings={settings}
           onCancel={() => setUpdatingPrice(null)}
-          onSave={async (form) => {
-            const parsedPrice = Number(String(form.newPrice).replace(/[^0-9.-]+/g, ''));
-            if (isNaN(parsedPrice)) {
-              throw new Error('Invalid price entered.');
-            }
-            await api(`/investments/${updatingPrice.lots[0].id}`, { method: 'PUT', body: JSON.stringify({ ...updatingPrice.lots[0], current_price: parsedPrice }) });
+          onSave={async (newPrice) => {
+            await api(`/investments/${updatingPrice.lots[0].id}`, { method: 'PUT', body: JSON.stringify({ ...updatingPrice.lots[0], current_price: newPrice }) });
             setUpdatingPrice(null);
             await load();
             setGraphRefresh((value) => value + 1);
