@@ -24,7 +24,7 @@ const DEFAULT_CATEGORIES = {
   liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
   income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
   expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
-  investment: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
+  investment: ['Stocks', 'Mutual Funds', 'Crypto', 'Fixed Deposit (FD)', 'Recurring Deposit (RD)', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
   transfer: ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']
 };
 
@@ -160,19 +160,32 @@ function getDualCurrencyStats(item, settings) {
   };
 }
 
-function isFdorRd(category) {
+function isFd(category) {
   if (!category) return false;
   const s = String(category).trim().toLowerCase();
   return (
-    s === 'fd/rd' ||
-    s === 'fd' ||
-    s === 'rd' ||
+    s === 'fixed deposit (fd)' ||
     s === 'fixed deposit' ||
-    s === 'recurring deposit' ||
+    s === 'fd' ||
     s.includes('fixed deposit') ||
-    s.includes('recurring deposit') ||
-    s === 'term deposit'
+    s === 'term deposit' ||
+    s === 'fd/rd'
   );
+}
+
+function isRd(category) {
+  if (!category) return false;
+  const s = String(category).trim().toLowerCase();
+  return (
+    s === 'recurring deposit (rd)' ||
+    s === 'recurring deposit' ||
+    s === 'rd' ||
+    s.includes('recurring deposit')
+  );
+}
+
+function isFdorRd(category) {
+  return isFd(category) || isRd(category);
 }
 
 function calculateTenure(startDateStr, endDateStr) {
@@ -959,7 +972,7 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
             <span>💰</span> Record Interest Received
           </h2>
           <span className="badge" style={{ background: '#064e3b', color: '#6ee7b7', border: '1px solid #059669', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}>
-            {freq}
+            {isRd(investment.category) ? 'Recurring Deposit (RD)' : isFd(investment.category) ? 'Fixed Deposit (FD)' : 'Deposit'} • {freq}
           </span>
         </div>
         
@@ -972,7 +985,7 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
         <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #334155', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', fontSize: '13px' }}>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>DEPOSIT / ASSET</span>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>{isRd(investment.category) ? 'RECURRING DEPOSIT' : 'FIXED DEPOSIT'}</span>
               <strong style={{ color: '#f8fafc' }}>{investment.asset_name}</strong>
             </div>
             <div>
@@ -1435,14 +1448,14 @@ function Dashboard({ settings, categories }) {
     { name: 'category', label: 'Category', type: 'select', options: getCategoryOptions(['investment']) },
     { name: 'platform', label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : 'Platform' },
     { name: 'quantity', label: 'Quantity', type: 'number', condition: (form) => !isFdorRd(form?.category) },
-    { name: 'buy_price', label: (form) => isFdorRd(form?.category) ? 'Invested / Principal Amount' : 'Buy Price', type: 'number' },
+    { name: 'buy_price', label: (form) => isRd(form?.category) ? 'Monthly Deposit (₹)' : isFd(form?.category) ? 'Principal Amount (₹)' : 'Buy Price', type: 'number' },
     { name: 'current_price', label: (form) => isFdorRd(form?.category) ? 'Current / Maturity Value' : 'Current Price', type: 'number' },
-    { name: 'buy_date', label: (form) => isFdorRd(form?.category) ? 'Invested Date' : 'Buy Date', type: 'date' },
-    { name: 'tenure', label: 'Tenure', placeholder: 'e.g. 1 Year, 18 Months', condition: (form) => isFdorRd(form?.category) },
+    { name: 'buy_date', label: (form) => isRd(form?.category) ? 'Start Date' : isFd(form?.category) ? 'Deposit Date' : 'Buy Date', type: 'date' },
+    { name: 'tenure', label: 'Tenure', placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 2 Years' : 'e.g. 1 Year, 18 Months', condition: (form) => isFdorRd(form?.category) },
     { name: 'interest_rate', label: 'Interest Rate (%)', type: 'number', condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds' },
     { name: 'maturity_date', label: 'Maturity Date', type: 'date', condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds' },
     { name: 'payout_frequency', label: 'Interest Payout Option', type: 'select', options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout'], condition: (form) => isFdorRd(form?.category) },
-    { name: 'is_sip', label: 'Is SIP?', type: 'checkbox', condition: (form) => !isFdorRd(form?.category) || String(form?.category).trim().toLowerCase() === 'rd' },
+    { name: 'is_sip', label: 'Is SIP / Recurring?', type: 'checkbox', condition: (form) => isRd(form?.category) || !isFdorRd(form?.category) },
     { name: 'notes', label: 'Notes' }
   ] : [];
 
@@ -1890,7 +1903,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.7 • Built with ❤️
+                Version 2.3.8 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -2312,8 +2325,8 @@ function PortfolioTracker({ settings, categories }) {
   const fields = [
     {
       name: 'asset_name',
-      label: (form) => isFdorRd(form?.category) ? 'Deposit / Asset Name' : 'Asset Name',
-      placeholder: (form) => isFdorRd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI RD' : 'e.g. Apple, Bitcoin, Reliance'
+      label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : 'Asset Name',
+      placeholder: (form) => isRd(form?.category) ? 'e.g. SBI Monthly RD, ICICI RD' : isFd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI FD' : 'e.g. Apple, Bitcoin, Reliance'
     },
     { name: 'category', label: 'Category', type: 'select', options: categories.investment },
     {
@@ -2329,7 +2342,11 @@ function PortfolioTracker({ settings, categories }) {
     },
     {
       name: 'buy_price',
-      label: (form) => isFdorRd(form?.category) ? `Invested / Principal Amount (${settings?.currency_symbol || '₹'})` : 'Buy Price',
+      label: (form) => isRd(form?.category)
+        ? `Monthly Deposit / Installment (${settings?.currency_symbol || '₹'})`
+        : isFd(form?.category)
+          ? `Principal / Deposit Amount (${settings?.currency_symbol || '₹'})`
+          : 'Buy Price',
       type: 'number'
     },
     {
@@ -2352,13 +2369,13 @@ function PortfolioTracker({ settings, categories }) {
     },
     {
       name: 'buy_date',
-      label: (form) => isFdorRd(form?.category) ? 'Invested Date' : 'Buy Date',
+      label: (form) => isRd(form?.category) ? 'Start / Deposit Date' : isFd(form?.category) ? 'Deposit Date' : 'Buy Date',
       type: 'date'
     },
     {
       name: 'tenure',
       label: 'Tenure',
-      placeholder: 'e.g. 1 Year, 18 Months, 555 Days',
+      placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 24 Months, 2 Years' : 'e.g. 1 Year, 18 Months, 555 Days',
       condition: (form) => isFdorRd(form?.category)
     },
     {
@@ -2384,9 +2401,9 @@ function PortfolioTracker({ settings, categories }) {
     { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
     {
       name: 'is_sip',
-      label: 'Is SIP / Recurring?',
+      label: (form) => isRd(form?.category) ? 'Monthly Recurring Installment (RD)' : 'Is SIP?',
       type: 'checkbox',
-      condition: (form) => !isFdorRd(form?.category) || String(form?.category).trim().toLowerCase() === 'rd'
+      condition: (form) => isRd(form?.category) || !isFdorRd(form?.category)
     },
     { name: 'notes', label: 'Notes' }
   ];
@@ -2670,7 +2687,7 @@ function PortfolioTracker({ settings, categories }) {
 
       {editing && (
         <Modal 
-          title={`${editing.id ? 'Edit' : 'Add'} ${isFdorRd(editing.category) ? 'FD / RD' : 'Investment Lot'}`} 
+          title={`${editing.id ? 'Edit' : 'Add'} ${isRd(editing.category) ? 'Recurring Deposit (RD)' : isFd(editing.category) ? 'Fixed Deposit (FD)' : 'Investment Lot'}`} 
           fields={fields} 
           initial={editing} 
           onCancel={() => setEditing(null)} 

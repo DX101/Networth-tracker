@@ -3,19 +3,32 @@ const router = express.Router();
 const { getDb, ensureInvestmentColumns } = require('../db');
 const { takeSnapshot } = require('./snapshots');
 
-function isFdorRd(category) {
+function isFd(category) {
   if (!category) return false;
   const s = String(category).trim().toLowerCase();
   return (
-    s === 'fd/rd' ||
-    s === 'fd' ||
-    s === 'rd' ||
+    s === 'fixed deposit (fd)' ||
     s === 'fixed deposit' ||
-    s === 'recurring deposit' ||
+    s === 'fd' ||
     s.includes('fixed deposit') ||
-    s.includes('recurring deposit') ||
-    s === 'term deposit'
+    s === 'term deposit' ||
+    s === 'fd/rd'
   );
+}
+
+function isRd(category) {
+  if (!category) return false;
+  const s = String(category).trim().toLowerCase();
+  return (
+    s === 'recurring deposit (rd)' ||
+    s === 'recurring deposit' ||
+    s === 'rd' ||
+    s.includes('recurring deposit')
+  );
+}
+
+function isFdorRd(category) {
+  return isFd(category) || isRd(category);
 }
 
 // GET all investments

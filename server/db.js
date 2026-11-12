@@ -463,6 +463,10 @@ function ensureCategoriesColumns(db) {
   };
   ensureCat('Trading / Brokerage Account', 'asset');
   ensureCat('ETF', 'asset');
+  ensureCat('Fixed Deposit (FD)', 'investment');
+  ensureCat('Recurring Deposit (RD)', 'investment');
+  db.prepare("DELETE FROM categories WHERE name = 'FD/RD' AND type = 'investment'").run();
+  db.prepare("UPDATE investments SET category = 'Fixed Deposit (FD)' WHERE category = 'FD/RD'").run();
 }
 
 function ensureInsuranceTable(db) {
@@ -538,7 +542,8 @@ function seedDefaultCategories(db) {
   insertCat('Stocks', 'investment');
   insertCat('Mutual Funds', 'investment');
   insertCat('Crypto', 'investment');
-  insertCat('FD/RD', 'investment');
+  insertCat('Fixed Deposit (FD)', 'investment');
+  insertCat('Recurring Deposit (RD)', 'investment');
   insertCat('Bonds', 'investment');
   insertCat('Real Estate', 'investment');
   insertCat('Gold', 'investment');
