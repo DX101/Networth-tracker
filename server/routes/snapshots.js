@@ -2,21 +2,51 @@ const express = require('express');
 const router = express.Router();
 const { getDb, ensureSnapshotColumns } = require('../db');
 
+const FALLBACK_RATES = {
+  INR: { USD: 93.95, EUR: 102.5, GBP: 121.0, AED: 25.5, CAD: 66.5, SGD: 70.0, JPY: 0.60 },
+  USD: { INR: 0.01064, EUR: 1.09, GBP: 1.28, AED: 0.27, CAD: 0.71, SGD: 0.74, JPY: 0.0064 },
+  EUR: { USD: 0.917, INR: 0.00975, GBP: 1.17, AED: 0.25 },
+  GBP: { USD: 0.781, EUR: 0.854, INR: 0.00826 },
+  AED: { USD: 0.272, INR: 0.0392, EUR: 0.297 }
+};
+
+function toBase(amount, fromCurrency, baseCurrency, rates = {}) {
+  const num = Number(amount) || 0;
+  if (!fromCurrency || fromCurrency === baseCurrency) return num;
+  if (rates && rates[fromCurrency] && Number(rates[fromCurrency]) > 0) {
+    return num * Number(rates[fromCurrency]);
+  }
+  if (FALLBACK_RATES[baseCurrency] && FALLBACK_RATES[baseCurrency][fromCurrency]) {
+    return num * FALLBACK_RATES[baseCurrency][fromCurrency];
+  }
+  return num;
+}
+
 // Helper function to calculate and store a snapshot
 async function takeSnapshot(isManual = false) {
   try {
     const db = getDb();
     ensureSnapshotColumns(db);
 
-    const assetsTotal = db.prepare('SELECT COALESCE(SUM(current_value), 0) as total FROM assets').get();
-    const liabilitiesTotal = db.prepare('SELECT COALESCE(SUM(current_value), 0) as total FROM liabilities').get();
+    const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
+    const baseCur = settings.currency || 'INR';
+    let rates = {};
+    try { rates = JSON.parse(settings.exchange_rates || '{}'); } catch(e) {}
 
-    const investments = db.prepare('SELECT * FROM investments').all();
+    const assets = db.prepare('SELECT current_value, currency FROM assets').all();
+    let directAssets = 0;
+    for (const a of assets) directAssets += toBase(a.current_value, a.currency, baseCur, rates);
+
+    const liabilities = db.prepare('SELECT current_value, currency FROM liabilities').all();
+    let liabilitiesTotal = 0;
+    for (const l of liabilities) liabilitiesTotal += toBase(l.current_value, l.currency, baseCur, rates);
+
+    const investments = db.prepare('SELECT current_price, buy_price, quantity, currency FROM investments').all();
     let investmentValue = 0;
     let investmentCost = 0;
     for (const inv of investments) {
-      investmentValue += inv.current_price * inv.quantity;
-      investmentCost += inv.buy_price * inv.quantity;
+      investmentValue += toBase((inv.current_price || 0) * (inv.quantity || 0), inv.currency, baseCur, rates);
+      investmentCost += toBase((inv.buy_price || 0) * (inv.quantity || 0), inv.currency, baseCur, rates);
     }
     const investmentPnl = investmentValue - investmentCost;
 
@@ -38,9 +68,9 @@ async function takeSnapshot(isManual = false) {
       "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='expense' AND strftime('%Y', date)=? AND strftime('%m', date)=?"
     ).get(String(year), month);
 
-    const totalAssetsWithInvestments = assetsTotal.total + investmentValue + insuranceCashValue;
+    const totalAssetsWithInvestments = directAssets + investmentValue + insuranceCashValue;
     const netCashflow = incomeTotal.total - expenseTotal.total;
-    const netWorth = totalAssetsWithInvestments - liabilitiesTotal.total + netCashflow;
+    const netWorth = totalAssetsWithInvestments - liabilitiesTotal + netCashflow;
 
     const stmt = db.prepare(
       `INSERT INTO snapshots (direct_assets, total_assets, total_liabilities, net_worth, investment_value, investment_pnl,
@@ -48,7 +78,7 @@ async function takeSnapshot(isManual = false) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
     );
     stmt.run(
-      assetsTotal.total, totalAssetsWithInvestments, liabilitiesTotal.total, netWorth,
+      directAssets, totalAssetsWithInvestments, liabilitiesTotal, netWorth,
       investmentValue, investmentPnl,
       incomeTotal.total, expenseTotal.total,
       isManual ? 1 : 0

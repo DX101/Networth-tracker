@@ -66,13 +66,29 @@ function StatCard({ id, label, value, hint, color, breakdown, setBreakdown, sett
   </button>;
 }
 
+const FALLBACK_EXCHANGE_RATES = {
+  INR: { USD: 93.95, EUR: 102.5, GBP: 121.0, AED: 25.5, CAD: 66.5, SGD: 70.0, JPY: 0.60 },
+  USD: { INR: 0.01064, EUR: 1.09, GBP: 1.28, AED: 0.27, CAD: 0.71, SGD: 0.74, JPY: 0.0064 },
+  EUR: { USD: 0.917, INR: 0.00975, GBP: 1.17, AED: 0.25 },
+  GBP: { USD: 0.781, EUR: 0.854, INR: 0.00826 },
+  AED: { USD: 0.272, INR: 0.0392, EUR: 0.297 }
+};
+
 function convertValue(amount, fromCurrency, settings) {
   const num = Number(amount) || 0;
   if (!fromCurrency || fromCurrency === settings?.currency) return num;
   try {
     const rates = JSON.parse(settings?.exchange_rates || '{}');
-    if (rates[fromCurrency]) return num * Number(rates[fromCurrency]);
+    if (rates[fromCurrency] && Number(rates[fromCurrency]) > 0) {
+      return num * Number(rates[fromCurrency]);
+    }
   } catch (e) {}
+  
+  // Smart fallback if live rates not yet loaded
+  const base = settings?.currency || 'INR';
+  if (FALLBACK_EXCHANGE_RATES[base] && FALLBACK_EXCHANGE_RATES[base][fromCurrency]) {
+    return num * FALLBACK_EXCHANGE_RATES[base][fromCurrency];
+  }
   return num;
 }
 
@@ -208,7 +224,26 @@ function RecentCashFlow({ rows, settings, compact = false, onEdit, onDelete }) {
 }
 
 function money(value, settings) {
-  return `${settings?.currency_symbol || '\u20B9'}${Number(value || 0).toLocaleString()}`;
+  const num = Number(value || 0);
+  const isNeg = num < 0;
+  const absNum = Math.abs(num);
+  let sym = '\u20B9';
+  if (settings) {
+    if (settings.currency_symbol === '') {
+      sym = '';
+    } else if (settings.currency && CURRENCIES[settings.currency]) {
+      sym = CURRENCIES[settings.currency];
+    } else if (settings.currency_symbol) {
+      sym = settings.currency_symbol;
+    } else if (settings.currency) {
+      sym = settings.currency + ' ';
+    }
+  }
+  const formatted = absNum.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  return `${isNeg ? '-' : ''}${sym}${formatted}`;
 }
 
 function formatDate(value, settings) {
@@ -1294,7 +1329,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.3 • Built with ❤️
+                Version 2.3.4 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -1708,8 +1743,8 @@ function PortfolioTracker({ settings, categories }) {
   const performanceConfig = {
     title: 'Portfolio Value',
     type: 'line',
-    series: [{ key: 'investment_value', label: 'Total Value', color: '#6366f1', getValue: (r) => Number(r.current_value || (Number(r.current_price || 0) * Number(r.quantity || 0))) }],
-    currentValues: (rws) => ({ investment_value: rws.reduce((sum, r) => sum + (Number(r.current_price || 0) * Number(r.quantity || 0)), 0) })
+    series: [{ key: 'investment_value', label: 'Total Value', color: '#6366f1', getValue: (r) => convertValue(Number(r.current_value || (Number(r.current_price || 0) * Number(r.quantity || 0))), r.currency, settings) }],
+    currentValues: (rws) => ({ investment_value: rws.reduce((sum, r) => sum + convertValue(Number(r.current_price || 0) * Number(r.quantity || 0), r.currency, settings), 0) })
   };
 
   return (
@@ -1753,16 +1788,49 @@ function PortfolioTracker({ settings, categories }) {
                       <span style={{ display: 'inline-block', width: '20px', color: '#94a3b8' }}>
                         {expandedAsset === p.asset_name + '_' + (p.currency || '') ? '▼' : '▶'}
                       </span>
-                      {p.asset_name} {p.currency && <small style={{ color: '#64748b' }}>({p.currency})</small>}
+                      {p.asset_name} {p.currency && <span className="badge" style={{ marginLeft: '6px', fontSize: '11px', background: p.currency === settings?.currency ? '#1e293b' : '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px' }}>{p.currency}</span>}
                     </td>
                     <td><span className="badge" style={{ background: '#334155', color: '#e2e8f0', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.category}</span></td>
                     <td style={{ textAlign: 'right' }}>{p.total_quantity}</td>
-                    <td style={{ textAlign: 'right' }}>{money(p.avg_buy_price, { ...settings, currency: p.currency || settings.currency })}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{money(p.current_price, { ...settings, currency: p.currency || settings.currency })}</td>
-                    <td style={{ textAlign: 'right' }}>{money(p.total_invested, { ...settings, currency: p.currency || settings.currency })}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{money(p.current_value, { ...settings, currency: p.currency || settings.currency })}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {money(p.avg_buy_price, { currency: p.currency || settings?.currency })}
+                      {p.currency && p.currency !== settings?.currency && (
+                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                          ≈ {money(convertValue(p.avg_buy_price, p.currency, settings), settings)}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                      {money(p.current_price, { currency: p.currency || settings?.currency })}
+                      {p.currency && p.currency !== settings?.currency && (
+                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                          ≈ {money(convertValue(p.current_price, p.currency, settings), settings)}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {money(p.total_invested, { currency: p.currency || settings?.currency })}
+                      {p.currency && p.currency !== settings?.currency && (
+                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                          ≈ {money(convertValue(p.total_invested, p.currency, settings), settings)}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                      {money(p.current_value, { currency: p.currency || settings?.currency })}
+                      {p.currency && p.currency !== settings?.currency && (
+                        <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '2px', fontWeight: 600 }}>
+                          ≈ {money(convertValue(p.current_value, p.currency, settings), settings)}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right', color: p.pnl >= 0 ? '#10b981' : '#ef4444' }}>
-                      {p.pnl > 0 ? '+' : ''}{money(p.pnl, { ...settings, currency: p.currency || settings.currency })}
+                      {p.pnl > 0 ? '+' : ''}{money(p.pnl, { currency: p.currency || settings?.currency })}
+                      {p.currency && p.currency !== settings?.currency && (
+                        <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '2px' }}>
+                          ≈ {p.pnl > 0 ? '+' : ''}{money(convertValue(p.pnl, p.currency, settings), settings)}
+                        </div>
+                      )}
                       <small style={{ display: 'block' }}>{p.pnl_percent.toFixed(2)}%</small>
                     </td>
                     <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
@@ -1781,11 +1849,32 @@ function PortfolioTracker({ settings, categories }) {
                         {lot.maturity_date ? ` • Mat: ${formatDate(lot.maturity_date, settings)}` : ''}
                       </td>
                       <td style={{ textAlign: 'right', fontSize: '13px' }}>{lot.quantity}</td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>{money(lot.buy_price, { ...settings, currency: p.currency || settings.currency })}</td>
+                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                        {money(lot.buy_price, { currency: p.currency || settings?.currency })}
+                        {p.currency && p.currency !== settings?.currency && (
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>
+                            ≈ {money(convertValue(lot.buy_price, p.currency, settings), settings)}
+                          </div>
+                        )}
+                      </td>
                       <td></td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>{money(lot.buy_price * lot.quantity, { ...settings, currency: p.currency || settings.currency })}</td>
+                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                        {money(lot.buy_price * lot.quantity, { currency: p.currency || settings?.currency })}
+                        {p.currency && p.currency !== settings?.currency && (
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>
+                            ≈ {money(convertValue(lot.buy_price * lot.quantity, p.currency, settings), settings)}
+                          </div>
+                        )}
+                      </td>
                       <td></td>
-                      <td style={{ textAlign: 'right', fontSize: '13px' }}>{money((p.current_price - lot.buy_price) * lot.quantity, { ...settings, currency: p.currency || settings.currency })}</td>
+                      <td style={{ textAlign: 'right', fontSize: '13px' }}>
+                        {money((p.current_price - lot.buy_price) * lot.quantity, { currency: p.currency || settings?.currency })}
+                        {p.currency && p.currency !== settings?.currency && (
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>
+                            ≈ {money(convertValue((p.current_price - lot.buy_price) * lot.quantity, p.currency, settings), settings)}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <button className="icon-btn edit" onClick={() => setEditing(lot)}>
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
@@ -4342,9 +4431,30 @@ function App() {
     api('/subscriptions/process', { method: 'POST' }).catch(console.error);
     
     if (!user) return;
-    api('/settings').then(data => {
+    api('/settings').then(async (data) => {
       if (data?.settings) setSettings(data.settings || { currency: 'INR', date_format: 'DD/MM/YYYY' });
       if (data?.categories) setCategories(data.categories || DEFAULT_CATEGORIES);
+      
+      // Auto-fetch fresh exchange rates if foreign currencies exist
+      try {
+        const [assets, liabilities, investments] = await Promise.all([api('/assets'), api('/liabilities'), api('/investments')]);
+        const base = data?.settings?.currency || 'INR';
+        const currencies = new Set();
+        (assets || []).forEach(a => { if (a.currency && a.currency !== base) currencies.add(a.currency); });
+        (liabilities || []).forEach(l => { if (l.currency && l.currency !== base) currencies.add(l.currency); });
+        (investments || []).forEach(i => { if (i.currency && i.currency !== base) currencies.add(i.currency); });
+        
+        if (currencies.size > 0) {
+          const symbols = Array.from(currencies).join(',');
+          const freshRates = await api(`/settings/live-rates?base=${base}&symbols=${symbols}`);
+          if (freshRates && Object.keys(freshRates).length > 0) {
+            let currentRates = {};
+            try { currentRates = JSON.parse(data?.settings?.exchange_rates || '{}'); } catch(e) {}
+            const merged = { ...currentRates, ...freshRates };
+            setSettings(prev => ({ ...prev, exchange_rates: JSON.stringify(merged, null, 2) }));
+          }
+        }
+      } catch (e) {}
     }).catch(() => {});
   }, [user]);
 
@@ -4513,7 +4623,16 @@ function App() {
       ]}
       columns={(s) => [
         { key: 'name', label: 'Name' }, { key: 'category', label: 'Category' },
-        { key: 'current_value', label: 'Current Value', render: (r) => money(r.current_value, { ...s, currency: r.currency || s.currency }) },
+        { key: 'current_value', label: 'Current Value', render: (r) => (
+          <div>
+            <div>{money(r.current_value, { currency: r.currency || s.currency })}</div>
+            {r.currency && r.currency !== s.currency && (
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                ≈ {money(convertValue(r.current_value, r.currency, s), s)}
+              </div>
+            )}
+          </div>
+        )},
         { key: 'statement', label: 'Statement', render: (r) => (
           <button
             className="secondary"
@@ -4542,7 +4661,16 @@ function App() {
       ]}
       columns={(s) => [
         { key: 'name', label: 'Name' }, { key: 'category', label: 'Category' },
-        { key: 'current_value', label: 'Balance', render: (r) => money(r.current_value, { ...s, currency: r.currency || s.currency }) },
+        { key: 'current_value', label: 'Balance', render: (r) => (
+          <div>
+            <div>{money(r.current_value, { currency: r.currency || s.currency })}</div>
+            {r.currency && r.currency !== s.currency && (
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                ≈ {money(convertValue(r.current_value, r.currency, s), s)}
+              </div>
+            )}
+          </div>
+        )},
         { key: 'interest_rate', label: 'Rate', render: (r) => r.interest_rate ? `${r.interest_rate}%` : '-' },
         { key: 'minimum_payment', label: 'EMI', render: (r) => money(r.minimum_payment || 0, s) },
         { key: 'emi_day', label: 'Due Day', render: (r) => r.emi_day ? `${r.emi_day}th` : '-' },
