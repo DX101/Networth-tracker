@@ -469,10 +469,403 @@ function Auth({ onLogin }) {
   );
 }
 
-function Table({ columns, rows, onEdit, onDelete }) {
-  return <div className="table-wrap"><table><thead><tr>{columns.map((c) => <th key={c.key}>{c.label}</th>)}<th>Actions</th></tr></thead><tbody>
-    {rows.map((row) => <tr key={row.id}>{columns.map((c) => <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>)}<td className="actions">{onEdit && <button type="button" className="secondary" onClick={() => onEdit(row)}>Edit</button>}{onDelete && <button type="button" className="danger" onClick={() => onDelete(row.id)}>Delete</button>}</td></tr>)}
-  </tbody></table></div>;
+function generatePageNumbers(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, '...', totalPages];
+  }
+  if (currentPage >= totalPages - 3) {
+    return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+}
+
+function PaginationBar({ totalRecords, pageSize, currentPage, onPageChange, onPageSizeChange }) {
+  if (!totalRecords || totalRecords <= 0) return null;
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? totalRecords : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalRecords / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIdx = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * effectivePageSize + 1;
+  const endIdx = isAll ? totalRecords : Math.min(safeCurrentPage * effectivePageSize, totalRecords);
+
+  const pages = generatePageNumbers(safeCurrentPage, totalPages);
+
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '12px 18px',
+      borderTop: '1px solid #1e293b',
+      background: '#090e1a',
+      flexWrap: 'wrap',
+      gap: '12px',
+      fontSize: '13px'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: '#94a3b8' }}>
+        <span>
+          Showing <strong style={{ color: '#f8fafc' }}>{startIdx}</strong> to <strong style={{ color: '#f8fafc' }}>{endIdx}</strong> of <strong style={{ color: '#f8fafc' }}>{totalRecords}</strong> records
+        </span>
+        {onPageSizeChange && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>Per page:</span>
+            <select
+              value={pageSize}
+              onChange={e => onPageSizeChange(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              style={{
+                background: '#020617',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: '6px',
+                padding: '3px 8px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {!isAll && totalPages > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            type="button"
+            disabled={safeCurrentPage <= 1}
+            onClick={() => onPageChange(1)}
+            style={{
+              padding: '4px 8px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: '1px solid #334155',
+              background: '#0f172a',
+              color: safeCurrentPage <= 1 ? '#475569' : '#94a3b8',
+              cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+              opacity: safeCurrentPage <= 1 ? 0.5 : 1
+            }}
+            title="First Page"
+          >
+            « First
+          </button>
+          <button
+            type="button"
+            disabled={safeCurrentPage <= 1}
+            onClick={() => onPageChange(safeCurrentPage - 1)}
+            style={{
+              padding: '4px 8px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: '1px solid #334155',
+              background: '#0f172a',
+              color: safeCurrentPage <= 1 ? '#475569' : '#94a3b8',
+              cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+              opacity: safeCurrentPage <= 1 ? 0.5 : 1
+            }}
+            title="Previous Page"
+          >
+            ‹ Prev
+          </button>
+
+          {pages.map((p, idx) => (
+            p === '...' ? (
+              <span key={`dots-${idx}`} style={{ padding: '0 4px', color: '#64748b' }}>…</span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPageChange(p)}
+                style={{
+                  minWidth: '32px',
+                  height: '28px',
+                  padding: '2px 8px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: p === safeCurrentPage ? '1px solid #14b8a6' : '1px solid #334155',
+                  background: p === safeCurrentPage ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : '#0f172a',
+                  color: p === safeCurrentPage ? '#ffffff' : '#94a3b8',
+                  fontWeight: p === safeCurrentPage ? 700 : 500,
+                  cursor: 'pointer'
+                }}
+              >
+                {p}
+              </button>
+            )
+          ))}
+
+          <button
+            type="button"
+            disabled={safeCurrentPage >= totalPages}
+            onClick={() => onPageChange(safeCurrentPage + 1)}
+            style={{
+              padding: '4px 8px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: '1px solid #334155',
+              background: '#0f172a',
+              color: safeCurrentPage >= totalPages ? '#475569' : '#94a3b8',
+              cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+              opacity: safeCurrentPage >= totalPages ? 0.5 : 1
+            }}
+            title="Next Page"
+          >
+            Next ›
+          </button>
+          <button
+            type="button"
+            disabled={safeCurrentPage >= totalPages}
+            onClick={() => onPageChange(totalPages)}
+            style={{
+              padding: '4px 8px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: '1px solid #334155',
+              background: '#0f172a',
+              color: safeCurrentPage >= totalPages ? '#475569' : '#94a3b8',
+              cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+              opacity: safeCurrentPage >= totalPages ? 0.5 : 1
+            }}
+            title="Last Page"
+          >
+            Last »
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TableFilterBar({
+  searchTerm,
+  onSearchChange,
+  searchPlaceholder = '🔍 Search records...',
+  categoryFilter,
+  onCategoryChange,
+  categories = [],
+  pageSize,
+  onPageSizeChange,
+  extraControls = null
+}) {
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '10px 16px',
+      background: '#0b1120',
+      borderBottom: '1px solid #1e293b',
+      flexWrap: 'wrap',
+      gap: '10px'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '240px', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '200px', flex: 1, maxWidth: '340px' }}>
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            value={searchTerm}
+            onChange={e => onSearchChange(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '6px 28px 6px 12px',
+              fontSize: '12px',
+              background: '#020617',
+              border: '1px solid #334155',
+              borderRadius: '6px',
+              color: '#f8fafc'
+            }}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '14px',
+                padding: 0
+              }}
+              title="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {categories && categories.length > 0 && onCategoryChange && (
+          <select
+            value={categoryFilter}
+            onChange={e => onCategoryChange(e.target.value)}
+            style={{
+              padding: '6px 10px',
+              fontSize: '12px',
+              background: '#020617',
+              border: '1px solid #334155',
+              borderRadius: '6px',
+              color: '#f8fafc',
+              cursor: 'pointer',
+              minWidth: '140px'
+            }}
+          >
+            <option value="all">📁 All Categories</option>
+            {categories.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        )}
+
+        {extraControls}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
+        <select
+          value={pageSize}
+          onChange={e => onPageSizeChange(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          style={{
+            padding: '6px 10px',
+            fontSize: '12px',
+            background: '#020617',
+            border: '1px solid #334155',
+            borderRadius: '6px',
+            color: '#f8fafc',
+            cursor: 'pointer'
+          }}
+        >
+          <option value={10}>10 records</option>
+          <option value={25}>25 records</option>
+          <option value={50}>50 records</option>
+          <option value={100}>100 records</option>
+          <option value="all">All records</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function Table({ columns, rows, onEdit, onDelete, searchPlaceholder = '🔍 Search records...' }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('table_page_size') || localStorage.getItem('preferred_page_size')) : null;
+    return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set();
+    rows.forEach(r => {
+      if (r.category) cats.add(r.category);
+    });
+    return Array.from(cats).sort();
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter(row => {
+      if (categoryFilter !== 'all' && row.category && row.category !== categoryFilter) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const match = Object.values(row).some(val => {
+          if (val === null || val === undefined) return false;
+          return String(val).toLowerCase().includes(q);
+        });
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [rows, categoryFilter, searchTerm]);
+
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? filteredRows.length : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filteredRows.length / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedRows = useMemo(() => {
+    if (isAll) return filteredRows;
+    const start = (safeCurrentPage - 1) * effectivePageSize;
+    return filteredRows.slice(start, start + effectivePageSize);
+  }, [filteredRows, isAll, safeCurrentPage, effectivePageSize]);
+
+  return (
+    <div className="table-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
+      <TableFilterBar
+        searchTerm={searchTerm}
+        onSearchChange={val => { setSearchTerm(val); setCurrentPage(1); }}
+        searchPlaceholder={searchPlaceholder}
+        categoryFilter={categoryFilter}
+        onCategoryChange={availableCategories.length > 0 ? (val => { setCategoryFilter(val); setCurrentPage(1); }) : null}
+        categories={availableCategories}
+        pageSize={pageSize}
+        onPageSizeChange={val => {
+          setPageSize(val);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('table_page_size', String(val));
+            localStorage.setItem('preferred_page_size', String(val));
+          }
+          setCurrentPage(1);
+        }}
+      />
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead>
+            <tr>
+              {columns.map((c) => <th key={c.key}>{c.label}</th>)}
+              {(onEdit || onDelete) && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedRows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)} style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                  No records found matching your filters.
+                </td>
+              </tr>
+            ) : (
+              paginatedRows.map((row) => (
+                <tr key={row.id}>
+                  {columns.map((c) => <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>)}
+                  {(onEdit || onDelete) && (
+                    <td className="actions">
+                      {onEdit && <button type="button" className="secondary" onClick={() => onEdit(row)}>Edit</button>}
+                      {onDelete && <button type="button" className="danger" onClick={() => onDelete(row.id)}>Delete</button>}
+                    </td>
+                  )}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <PaginationBar
+        totalRecords={filteredRows.length}
+        pageSize={pageSize}
+        currentPage={safeCurrentPage}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={val => {
+          setPageSize(val);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('table_page_size', String(val));
+            localStorage.setItem('preferred_page_size', String(val));
+          }
+          setCurrentPage(1);
+        }}
+      />
+    </div>
+  );
 }
 
 function CrudSummary({ title, rows, settings }) {
@@ -1903,7 +2296,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.8 • Built with ❤️
+                Version 2.3.9 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -2317,6 +2710,52 @@ function PortfolioTracker({ settings, categories }) {
     return g;
   });
 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('portfolio_page_size') || localStorage.getItem('preferred_page_size')) : null;
+    return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set();
+    portfolio.forEach(p => { if (p.category) cats.add(p.category); });
+    return Array.from(cats).sort();
+  }, [portfolio]);
+
+  const filteredPortfolio = useMemo(() => {
+    return portfolio.filter(p => {
+      if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchName = (p.asset_name || '').toLowerCase().includes(q);
+        const matchCat = (p.category || '').toLowerCase().includes(q);
+        const matchCurr = (p.currency || '').toLowerCase().includes(q);
+        const matchLots = (p.lots || []).some(l =>
+          (l.platform || '').toLowerCase().includes(q) ||
+          (l.ticker || '').toLowerCase().includes(q) ||
+          (l.notes || '').toLowerCase().includes(q) ||
+          (l.tenure || '').toLowerCase().includes(q) ||
+          (l.receiving_account_name || '').toLowerCase().includes(q)
+        );
+        if (!matchName && !matchCat && !matchCurr && !matchLots) return false;
+      }
+      return true;
+    });
+  }, [portfolio, categoryFilter, searchTerm]);
+
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? filteredPortfolio.length : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filteredPortfolio.length / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedPortfolio = useMemo(() => {
+    if (isAll) return filteredPortfolio;
+    const start = (safeCurrentPage - 1) * effectivePageSize;
+    return filteredPortfolio.slice(start, start + effectivePageSize);
+  }, [filteredPortfolio, isAll, safeCurrentPage, effectivePageSize]);
+
   const bankAccountOptions = (bankAccounts || []).map(b => ({
     value: b.id,
     label: `${b.name} (${money(b.current_value, settings)})`
@@ -2431,7 +2870,12 @@ function PortfolioTracker({ settings, categories }) {
       
       <div className="card" style={{ marginTop: '20px', padding: 0, overflow: 'hidden' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap', gap: '10px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px' }}>Holdings</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>Holdings</h3>
+            <span className="badge" style={{ background: '#1e293b', color: '#94a3b8', fontSize: '12px', padding: '2px 8px', borderRadius: '12px' }}>
+              {filteredPortfolio.length} {filteredPortfolio.length === 1 ? 'asset' : 'assets'}
+            </span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '12px', color: '#94a3b8' }}>Display Currency:</span>
             <div style={{ display: 'inline-flex', background: '#020617', border: '1px solid #334155', borderRadius: '8px', padding: '2px', gap: '2px' }}>
@@ -2470,6 +2914,23 @@ function PortfolioTracker({ settings, categories }) {
             </div>
           </div>
         </div>
+        <TableFilterBar
+          searchTerm={searchTerm}
+          onSearchChange={val => { setSearchTerm(val); setCurrentPage(1); }}
+          searchPlaceholder="🔍 Search holdings, tickers, platforms..."
+          categoryFilter={categoryFilter}
+          onCategoryChange={val => { setCategoryFilter(val); setCurrentPage(1); }}
+          categories={availableCategories}
+          pageSize={pageSize}
+          onPageSizeChange={val => {
+            setPageSize(val);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('portfolio_page_size', String(val));
+              localStorage.setItem('preferred_page_size', String(val));
+            }
+            setCurrentPage(1);
+          }}
+        />
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ margin: 0, width: '100%' }}>
             <thead>
@@ -2486,7 +2947,7 @@ function PortfolioTracker({ settings, categories }) {
               </tr>
             </thead>
             <tbody>
-              {portfolio.map(p => {
+              {paginatedPortfolio.map(p => {
                 const stats = getDualCurrencyStats(p, settings);
                 const showInrPrimary = currencyView === 'inr' || !stats.hasDual;
 
@@ -2673,16 +3134,30 @@ function PortfolioTracker({ settings, categories }) {
                   </React.Fragment>
                 );
               })}
-              {portfolio.length === 0 && (
+              {paginatedPortfolio.length === 0 && (
                 <tr>
                   <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
-                    No investments found in your portfolio.
+                    {portfolio.length === 0 ? 'No investments found in your portfolio.' : 'No holdings found matching your filters.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          totalRecords={filteredPortfolio.length}
+          pageSize={pageSize}
+          currentPage={safeCurrentPage}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={val => {
+            setPageSize(val);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('portfolio_page_size', String(val));
+              localStorage.setItem('preferred_page_size', String(val));
+            }
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {editing && (
@@ -2867,11 +3342,50 @@ function Subscriptions({ settings, categories }) {
   const [subs, setSubs] = useState([]);
   const [form, setForm] = useState(null);
   const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('subscriptions_page_size') || localStorage.getItem('preferred_page_size')) : null;
+    return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
+  });
+  const [currentPage, setCurrentPage] = useState(1);
 
   async function load() {
     setSubs(await api('/subscriptions'));
   }
   useEffect(() => { load(); }, []);
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set();
+    subs.forEach(s => { if (s.category) cats.add(s.category); });
+    return Array.from(cats).sort();
+  }, [subs]);
+
+  const filteredSubs = useMemo(() => {
+    return subs.filter(s => {
+      if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchName = (s.name || '').toLowerCase().includes(q);
+        const matchCat = (s.category || '').toLowerCase().includes(q);
+        const matchFreq = (s.frequency || '').toLowerCase().includes(q);
+        const matchAmt = String(s.amount || '').includes(q);
+        if (!matchName && !matchCat && !matchFreq && !matchAmt) return false;
+      }
+      return true;
+    });
+  }, [subs, categoryFilter, searchTerm]);
+
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? filteredSubs.length : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filteredSubs.length / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedSubs = useMemo(() => {
+    if (isAll) return filteredSubs;
+    const start = (safeCurrentPage - 1) * effectivePageSize;
+    return filteredSubs.slice(start, start + effectivePageSize);
+  }, [filteredSubs, isAll, safeCurrentPage, effectivePageSize]);
 
   async function save(e) {
     e.preventDefault();
@@ -2912,47 +3426,80 @@ function Subscriptions({ settings, categories }) {
         </button>
       </div>
 
-      <div className="data-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Amount</th>
-              <th>Frequency</th>
-              <th>Next Due Date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subs.map(s => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td>{s.category}</td>
-                <td className="bad">{money(s.amount, settings)}</td>
-                <td style={{ textTransform: 'capitalize' }}>{s.frequency}</td>
-                <td>{formatDate(s.next_due_date, settings)}</td>
-                <td className="actions">
-                  <button className="icon-btn" onClick={() => setForm(s)}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                  </button>
-                  <button className="icon-btn" onClick={() => del(s.id)}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6"></polyline>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                  </button>
-                </td>
+      <div className="table-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
+        <TableFilterBar
+          searchTerm={searchTerm}
+          onSearchChange={val => { setSearchTerm(val); setCurrentPage(1); }}
+          searchPlaceholder="🔍 Search subscriptions..."
+          categoryFilter={categoryFilter}
+          onCategoryChange={availableCategories.length > 0 ? (val => { setCategoryFilter(val); setCurrentPage(1); }) : null}
+          categories={availableCategories}
+          pageSize={pageSize}
+          onPageSizeChange={val => {
+            setPageSize(val);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('subscriptions_page_size', String(val));
+              localStorage.setItem('preferred_page_size', String(val));
+            }
+            setCurrentPage(1);
+          }}
+        />
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Amount</th>
+                <th>Frequency</th>
+                <th>Next Due Date</th>
+                <th>Actions</th>
               </tr>
-            ))}
-            {subs.length === 0 && (
-              <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.5 }}>No active subscriptions found.</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paginatedSubs.map(s => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td>{s.category}</td>
+                  <td className="bad">{money(s.amount, settings)}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{s.frequency}</td>
+                  <td>{formatDate(s.next_due_date, settings)}</td>
+                  <td className="actions">
+                    <button className="icon-btn" onClick={() => setForm(s)}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                    <button className="icon-btn" onClick={() => del(s.id)}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {paginatedSubs.length === 0 && (
+                <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.5, padding: '30px' }}>{subs.length === 0 ? 'No active subscriptions found.' : 'No subscriptions match your filters.'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationBar
+          totalRecords={filteredSubs.length}
+          pageSize={pageSize}
+          currentPage={safeCurrentPage}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={val => {
+            setPageSize(val);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('subscriptions_page_size', String(val));
+              localStorage.setItem('preferred_page_size', String(val));
+            }
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {form && (
@@ -4241,9 +4788,15 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
   const [assets, setAssets] = useState([]);
   const [typeFilter, setTypeFilter] = useState('all');
   const [accountFilter, setAccountFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [editingTx, setEditingTx] = useState(null);
   const [notification, setNotification] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('cashflow_page_size') || localStorage.getItem('preferred_page_size')) : null;
+    return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
+  });
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = async () => {
     try {
@@ -4260,12 +4813,19 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
 
   useEffect(() => { load(); }, []);
 
+  const availableCategories = useMemo(() => {
+    const cats = new Set();
+    items.forEach(tx => { if (tx.category) cats.add(tx.category); });
+    return Array.from(cats).sort();
+  }, [items]);
+
   const filtered = items.filter(tx => {
     if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
     if (accountFilter !== 'all') {
       const accId = Number(accountFilter);
       if (Number(tx.account_id) !== accId && Number(tx.to_account_id) !== accId) return false;
     }
+    if (categoryFilter !== 'all' && tx.category !== categoryFilter) return false;
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       const desc = (tx.description || '').toLowerCase();
@@ -4276,6 +4836,17 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
     }
     return true;
   });
+
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? filtered.length : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filtered.length / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedTransactions = useMemo(() => {
+    if (isAll) return filtered;
+    const start = (safeCurrentPage - 1) * effectivePageSize;
+    return filtered.slice(start, start + effectivePageSize);
+  }, [filtered, isAll, safeCurrentPage, effectivePageSize]);
 
   const totalIncome = items.filter(x => x.type === 'income').reduce((s, x) => s + Number(x.amount || 0), 0);
   const totalExpense = items.filter(x => x.type === 'expense').reduce((s, x) => s + Number(x.amount || 0), 0);
@@ -4350,26 +4921,26 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
 
       {/* Filter Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px', background: '#0f172a', padding: '12px 16px', borderRadius: '10px', border: '1px solid #1e293b' }}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <button className={`pill ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => setTypeFilter('all')}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className={`pill ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => { setTypeFilter('all'); setCurrentPage(1); }}>
             All ({items.length})
           </button>
-          <button className={`pill ${typeFilter === 'expense' ? 'active' : ''}`} onClick={() => setTypeFilter('expense')}>
+          <button className={`pill ${typeFilter === 'expense' ? 'active' : ''}`} onClick={() => { setTypeFilter('expense'); setCurrentPage(1); }}>
             Expenses
           </button>
-          <button className={`pill ${typeFilter === 'income' ? 'active' : ''}`} onClick={() => setTypeFilter('income')}>
+          <button className={`pill ${typeFilter === 'income' ? 'active' : ''}`} onClick={() => { setTypeFilter('income'); setCurrentPage(1); }}>
             Income
           </button>
-          <button className={`pill ${typeFilter === 'transfer' ? 'active' : ''}`} onClick={() => setTypeFilter('transfer')}>
+          <button className={`pill ${typeFilter === 'transfer' ? 'active' : ''}`} onClick={() => { setTypeFilter('transfer'); setCurrentPage(1); }}>
             Transfers ⇄
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <select
             value={accountFilter}
-            onChange={e => setAccountFilter(e.target.value)}
-            style={{ width: 'auto', minWidth: '180px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155' }}
+            onChange={e => { setAccountFilter(e.target.value); setCurrentPage(1); }}
+            style={{ width: 'auto', minWidth: '170px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
           >
             <option value="all">🏦 All Accounts & Banks</option>
             {assets.map(a => (
@@ -4379,13 +4950,68 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
             ))}
           </select>
 
-          <input
-            type="text"
-            placeholder="Search description, category..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{ width: '200px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155' }}
-          />
+          {availableCategories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={e => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
+              style={{ width: 'auto', minWidth: '140px', padding: '6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              <option value="all">📁 All Categories</option>
+              {availableCategories.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search description, category..."
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              style={{ width: '200px', padding: '6px 24px 6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px', padding: 0 }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
+            <select
+              value={pageSize}
+              onChange={e => {
+                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                setPageSize(val);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('cashflow_page_size', String(val));
+                  localStorage.setItem('preferred_page_size', String(val));
+                }
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '6px 10px',
+                fontSize: '12px',
+                background: '#020617',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                color: '#f8fafc',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={10}>10 records</option>
+              <option value={25}>25 records</option>
+              <option value={50}>50 records</option>
+              <option value={100}>100 records</option>
+              <option value="all">All records</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -4403,14 +5029,14 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {paginatedTransactions.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-                  No transactions found matching your filters.
+                  {items.length === 0 ? 'No transactions recorded yet.' : 'No transactions found matching your filters.'}
                 </td>
               </tr>
             ) : (
-              filtered.map(tx => (
+              paginatedTransactions.map(tx => (
                 <tr key={tx.id} style={{ borderBottom: '1px solid #1e293b' }}>
                   <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: '#94a3b8' }}>{formatDate(tx.date, settings)}</td>
                   <td style={{ padding: '12px 14px' }}>
@@ -4465,6 +5091,20 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
             )}
           </tbody>
         </table>
+        <PaginationBar
+          totalRecords={filtered.length}
+          pageSize={pageSize}
+          currentPage={safeCurrentPage}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={val => {
+            setPageSize(val);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('cashflow_page_size', String(val));
+              localStorage.setItem('preferred_page_size', String(val));
+            }
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {editingTx && (
@@ -4814,6 +5454,12 @@ function InsurancePortfolio({ settings, categories }) {
   const [payingPolicy, setPayingPolicy] = useState(null);
   const [notification, setNotification] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('insurance_page_size') || localStorage.getItem('preferred_page_size')) : null;
+    return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
+  });
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = async () => {
     try {
@@ -4857,8 +5503,28 @@ function InsurancePortfolio({ settings, categories }) {
 
   const filteredPolicies = policies.filter(p => {
     if (filterType !== 'all' && p.policy_type !== filterType) return false;
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      const match = (p.policy_name || '').toLowerCase().includes(q) ||
+        (p.provider || '').toLowerCase().includes(q) ||
+        (p.policy_number || '').toLowerCase().includes(q) ||
+        (p.nominee || '').toLowerCase().includes(q) ||
+        (p.notes || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
     return true;
   });
+
+  const isAll = pageSize === 'all';
+  const effectivePageSize = isAll ? filteredPolicies.length : Number(pageSize || 10);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filteredPolicies.length / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedPolicies = useMemo(() => {
+    if (isAll) return filteredPolicies;
+    const start = (safeCurrentPage - 1) * effectivePageSize;
+    return filteredPolicies.slice(start, start + effectivePageSize);
+  }, [filteredPolicies, isAll, safeCurrentPage, effectivePageSize]);
 
   const handleSavePolicy = async (form) => {
     if (form.id) {
@@ -4952,33 +5618,86 @@ function InsurancePortfolio({ settings, categories }) {
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <button className={`pill ${filterType === 'all' ? 'active' : ''}`} onClick={() => setFilterType('all')}>
-          All Policies ({policies.length})
-        </button>
-        <button className={`pill ${filterType === 'term_life' ? 'active' : ''}`} onClick={() => setFilterType('term_life')}>
-          Term Life
-        </button>
-        <button className={`pill ${filterType === 'endowment' ? 'active' : ''}`} onClick={() => setFilterType('endowment')}>
-          Endowment / Savings
-        </button>
-        <button className={`pill ${filterType === 'ulip' ? 'active' : ''}`} onClick={() => setFilterType('ulip')}>
-          ULIP
-        </button>
-        <button className={`pill ${filterType === 'health' ? 'active' : ''}`} onClick={() => setFilterType('health')}>
-          Health
-        </button>
+      {/* Filter Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', background: '#0f172a', padding: '12px 16px', borderRadius: '10px', border: '1px solid #1e293b' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button className={`pill ${filterType === 'all' ? 'active' : ''}`} onClick={() => { setFilterType('all'); setCurrentPage(1); }}>
+            All Policies ({policies.length})
+          </button>
+          <button className={`pill ${filterType === 'term_life' ? 'active' : ''}`} onClick={() => { setFilterType('term_life'); setCurrentPage(1); }}>
+            Term Life
+          </button>
+          <button className={`pill ${filterType === 'endowment' ? 'active' : ''}`} onClick={() => { setFilterType('endowment'); setCurrentPage(1); }}>
+            Endowment / Savings
+          </button>
+          <button className={`pill ${filterType === 'ulip' ? 'active' : ''}`} onClick={() => { setFilterType('ulip'); setCurrentPage(1); }}>
+            ULIP
+          </button>
+          <button className={`pill ${filterType === 'health' ? 'active' : ''}`} onClick={() => { setFilterType('health'); setCurrentPage(1); }}>
+            Health
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search policies, providers..."
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              style={{ width: '210px', padding: '6px 24px 6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px', padding: 0 }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
+            <select
+              value={pageSize}
+              onChange={e => {
+                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                setPageSize(val);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('insurance_page_size', String(val));
+                  localStorage.setItem('preferred_page_size', String(val));
+                }
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '6px 10px',
+                fontSize: '12px',
+                background: '#020617',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                color: '#f8fafc',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={10}>10 records</option>
+              <option value={25}>25 records</option>
+              <option value={50}>50 records</option>
+              <option value="all">All records</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Policy Cards Grid */}
-      {filteredPolicies.length === 0 ? (
+      {paginatedPolicies.length === 0 ? (
         <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b', border: '1px solid #1e293b' }}>
-          <p style={{ margin: 0, fontSize: '15px' }}>No insurance policies found. Click "+ Add New Policy" to track your life, health, or investment policies!</p>
+          <p style={{ margin: 0, fontSize: '15px' }}>{policies.length === 0 ? 'No insurance policies found. Click "+ Add New Policy" to track your life, health, or investment policies!' : 'No insurance policies found matching your search or filters.'}</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '18px' }}>
-          {filteredPolicies.map(policy => {
+          {paginatedPolicies.map(policy => {
             const isDueSoon = policy.next_due_date && (() => {
               const diff = new Date(policy.next_due_date).getTime() - new Date().getTime();
               return diff >= 0 && diff <= (30 * 24 * 60 * 60 * 1000);
@@ -5076,6 +5795,25 @@ function InsurancePortfolio({ settings, categories }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {filteredPolicies.length > 0 && (
+        <div style={{ marginTop: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #1e293b' }}>
+          <PaginationBar
+            totalRecords={filteredPolicies.length}
+            pageSize={pageSize}
+            currentPage={safeCurrentPage}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={val => {
+              setPageSize(val);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('insurance_page_size', String(val));
+                localStorage.setItem('preferred_page_size', String(val));
+              }
+              setCurrentPage(1);
+            }}
+          />
         </div>
       )}
 
