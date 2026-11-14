@@ -4,7 +4,14 @@ const { app, BrowserWindow, shell, dialog, Notification, ipcMain } = require('el
 const path = require('path');
 const { fork } = require('child_process');
 const http = require('http');
-const { autoUpdater } = require('electron-updater');
+let autoUpdater = null;
+if (app.isPackaged) {
+  try {
+    autoUpdater = require('electron-updater').autoUpdater;
+  } catch (err) {
+    console.warn('Auto-updater disabled in this environment:', err.message);
+  }
+}
 
 let mainWindow = null;
 let serverProcess = null;
@@ -104,75 +111,77 @@ app.whenReady().then(async () => {
       await startServer();
       
       // Auto-updater configuration
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = true;
+      if (autoUpdater) {
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = true;
 
-      autoUpdater.on('checking-for-update', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { status: 'checking' });
-        }
-      });
-
-      autoUpdater.on('update-available', (info) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { status: 'available', version: info.version });
-        }
-        if (Notification.isSupported()) {
-          new Notification({
-            title: 'NetWorth Tracker Update Available',
-            body: `Version ${info.version} has been found! Downloading update in the background...`
-          }).show();
-        }
-      });
-
-      autoUpdater.on('download-progress', (progressObj) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { 
-            status: 'downloading', 
-            percent: Math.round(progressObj.percent) 
-          });
-        }
-      });
-
-      autoUpdater.on('update-not-available', (info) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { status: 'latest', version: info.version });
-        }
-      });
-
-      autoUpdater.on('update-downloaded', (info) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { status: 'downloaded', version: info.version });
-        }
-        dialog.showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Update Ready',
-          message: `NetWorth Tracker v${info.version} is downloaded and ready to install!\n\nWould you like to restart the application now to apply the update?`,
-          buttons: ['Restart Now', 'Later']
-        }).then((result) => {
-          if (result.response === 0) {
-            shutdownServer();
-            autoUpdater.quitAndInstall(true, true);
+        autoUpdater.on('checking-for-update', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { status: 'checking' });
           }
         });
-      });
 
-      autoUpdater.on('error', (err) => {
-        console.error('AutoUpdater Error:', err);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('update:status', { status: 'error', error: err.message });
-        }
-      });
+        autoUpdater.on('update-available', (info) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { status: 'available', version: info.version });
+          }
+          if (Notification.isSupported()) {
+            new Notification({
+              title: 'NetWorth Tracker Update Available',
+              body: `Version ${info.version} has been found! Downloading update in the background...`
+            }).show();
+          }
+        });
 
-      // Initial check on startup
-      autoUpdater.checkForUpdatesAndNotify();
+        autoUpdater.on('download-progress', (progressObj) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { 
+              status: 'downloading', 
+              percent: Math.round(progressObj.percent) 
+            });
+          }
+        });
 
-      // Periodic check every 15 minutes while running
-      setInterval(() => {
-        if (app.isPackaged) {
-          autoUpdater.checkForUpdates().catch(err => console.error('Periodic update check error:', err));
-        }
-      }, 15 * 60 * 1000);
+        autoUpdater.on('update-not-available', (info) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { status: 'latest', version: info.version });
+          }
+        });
+
+        autoUpdater.on('update-downloaded', (info) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { status: 'downloaded', version: info.version });
+          }
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Update Ready',
+            message: `NetWorth Tracker v${info.version} is downloaded and ready to install!\n\nWould you like to restart the application now to apply the update?`,
+            buttons: ['Restart Now', 'Later']
+          }).then((result) => {
+            if (result.response === 0) {
+              shutdownServer();
+              autoUpdater.quitAndInstall(true, true);
+            }
+          });
+        });
+
+        autoUpdater.on('error', (err) => {
+          console.error('AutoUpdater Error:', err);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update:status', { status: 'error', error: err.message });
+          }
+        });
+
+        // Initial check on startup
+        autoUpdater.checkForUpdatesAndNotify();
+
+        // Periodic check every 15 minutes while running
+        setInterval(() => {
+          if (app.isPackaged && autoUpdater) {
+            autoUpdater.checkForUpdates().catch(err => console.error('Periodic update check error:', err));
+          }
+        }, 15 * 60 * 1000);
+      }
 
       // Handle manual check from renderer
       ipcMain.handle('app:check-for-updates', async () => {
