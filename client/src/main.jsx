@@ -52,6 +52,33 @@ function Chart({ title, className = '', height = 260, controls, children }) {
   );
 }
 
+function EyeIcon({ size = 18, color = 'currentColor' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function EyeOffIcon({ size = 18, color = 'currentColor' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <line x1="2" x2="22" y1="2" y2="22" />
+    </svg>
+  );
+}
+
+function isPrivacyActive(settings) {
+  if (settings && typeof settings.privacy_mode === 'boolean') {
+    return settings.privacy_mode;
+  }
+  return typeof window !== 'undefined' ? localStorage.getItem('networth_privacy_mode') === 'true' : false;
+}
+
 function PremiumTooltip({ active, payload, label, settings }) {
   if (!active || !payload?.length) return null;
   return <div className="chart-tooltip"><div className="tooltip-label">{formatDate(label, settings)}</div>{payload.map((item) => <div className="tooltip-row" key={item.dataKey || item.name}><span style={{ background: item.color }} />{item.name || item.dataKey}<strong>{typeof item.value === 'number' ? money(item.value, settings) : item.value}</strong></div>)}</div>;
@@ -297,10 +324,35 @@ function BreakdownPanel({ type, data, totals, settings }) {
 }
 
 function RecentCashFlow({ rows, settings, compact = false, onEdit, onDelete }) {
+  const isPrivacy = isPrivacyActive(settings);
   return (
     <div className={compact ? 'recent-cashflow compact' : 'recent-cashflow'}>
       <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3>Recent Activity</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3>Recent Activity</h3>
+          <button
+            type="button"
+            className={`privacy-eye-pill ${isPrivacy ? 'active' : ''}`}
+            onClick={settings?.togglePrivacy}
+            style={{
+              background: isPrivacy ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+              border: isPrivacy ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(255, 255, 255, 0.1)',
+              color: isPrivacy ? '#f87171' : '#94a3b8',
+              borderRadius: '6px',
+              padding: '2px 8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: 500
+            }}
+            title={isPrivacy ? "Click to show transaction amounts" : "Click to hide transaction amounts for privacy"}
+          >
+            {isPrivacy ? <EyeOffIcon size={13} /> : <EyeIcon size={13} />}
+            <span>{isPrivacy ? 'Hidden' : 'Hide'}</span>
+          </button>
+        </div>
         {!compact && <span className="muted" style={{ fontSize: '12px' }}>Latest income, expenses & transfers</span>}
       </div>
       <div className="cashflow-list">
@@ -385,6 +437,9 @@ function money(value, settings) {
     } else if (settings.currency) {
       sym = settings.currency + ' ';
     }
+  }
+  if (isPrivacyActive(settings)) {
+    return `${isNeg ? '-' : ''}${sym}••••••`;
   }
   const formatted = absNum.toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -2029,7 +2084,18 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
       <div className="overview-head">
         <div>
           <p className="eyebrow">Overview</p>
-          <h1>Dashboard</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1>Dashboard</h1>
+            <button
+              type="button"
+              className={`privacy-btn ${isPrivacyActive(settings) ? 'privacy-active' : ''}`}
+              onClick={settings?.togglePrivacy}
+              title={isPrivacyActive(settings) ? "Click to show amounts (Privacy Mode ON)" : "Click to hide amounts (Privacy Mode OFF)"}
+            >
+              {isPrivacyActive(settings) ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
+              <span>{isPrivacyActive(settings) ? 'Hidden' : 'Hide'}</span>
+            </button>
+          </div>
           <p className="muted">Track net worth, assets, liabilities, cash flow, investments and budget health.</p>
         </div>
         <div className="quick-actions">
@@ -2088,7 +2154,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
               <BarChart data={networthChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis dataKey="date" tickFormatter={(val) => formatDate(val, settings)} />
-                <YAxis />
+                <YAxis tickFormatter={(val) => isPrivacyActive(settings) ? '•••' : (val >= 1000000 ? `${(val/1000000).toFixed(1)}M` : val >= 1000 ? `${(val/1000).toFixed(0)}k` : val)} />
                 <Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(20, 184, 166, 0.08)' }} />
                 <Bar dataKey="netWorth" name="Net Worth" fill="#14b8a6" radius={[8, 8, 0, 0]} />
               </BarChart>
@@ -2168,7 +2234,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
               <BarChart data={cashflowChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis dataKey="date" tickFormatter={(val) => formatDate(val, settings)} />
-                <YAxis />
+                <YAxis tickFormatter={(val) => isPrivacyActive(settings) ? '•••' : (val >= 1000000 ? `${(val/1000000).toFixed(1)}M` : val >= 1000 ? `${(val/1000).toFixed(0)}k` : val)} />
                 <Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(20, 184, 166, 0.08)' }} />
                 <Bar dataKey="Income" fill="#10b981" radius={[8, 8, 0, 0]} />
                 <Bar dataKey="Expenses" fill="#ef4444" radius={[8, 8, 0, 0]} />
@@ -2187,7 +2253,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
               <BarChart data={investmentPerformanceChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis dataKey="category" />
-                <YAxis />
+                <YAxis tickFormatter={(val) => isPrivacyActive(settings) ? '•••' : (val >= 1000000 ? `${(val/1000000).toFixed(1)}M` : val >= 1000 ? `${(val/1000).toFixed(0)}k` : val)} />
                 <Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(139, 92, 246, 0.08)' }} />
                 <Bar dataKey="invested_amount" fill="#64748b" name="Invested" radius={[8, 8, 0, 0]} />
                 <Bar dataKey="current_value" fill="#8b5cf6" name="Current Value" radius={[8, 8, 0, 0]} />
@@ -2381,6 +2447,25 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       {activeTab === 'general' && (
         <>
           <div className="settings-grid">
+            <div style={{ gridColumn: 'span 2', padding: '14px 18px', background: 'rgba(30, 41, 59, 0.5)', borderRadius: '10px', border: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f8fafc', fontSize: '14px' }}>
+                  {settings.privacy_mode ? <EyeOffIcon size={16} color="#f87171" /> : <EyeIcon size={16} color="#14b8a6" />}
+                  Privacy Mode
+                </strong>
+                <span style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                  Mask financial balances, net worth, and transaction amounts with ••••••
+                </span>
+              </div>
+              <button
+                type="button"
+                className={`privacy-btn ${settings.privacy_mode ? 'privacy-active' : ''}`}
+                onClick={settings.togglePrivacy}
+              >
+                {settings.privacy_mode ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
+                <span>{settings.privacy_mode ? 'Masked' : 'Visible'}</span>
+              </button>
+            </div>
             <label>Currency
               <select value={settings.currency || 'INR'} onChange={e => setSettings({ ...settings, currency: e.target.value })}>
                 {Object.keys(CURRENCIES).map(c => <option key={c} value={c}>{c} ({CURRENCIES[c]})</option>)}
@@ -2438,7 +2523,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.4.0 • Built with ❤️
+                Version 2.4.1 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -5042,7 +5127,16 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
           <h1>Cashflow & Activity</h1>
           <p>Track income, expenses, and internal bank transfers with automatic balance sync.</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            type="button"
+            className={`privacy-btn ${isPrivacyActive(settings) ? 'privacy-active' : ''}`}
+            onClick={settings?.togglePrivacy}
+            title={isPrivacyActive(settings) ? "Show Transaction Amounts" : "Hide Transaction Amounts for Privacy"}
+          >
+            {isPrivacyActive(settings) ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
+            <span>{isPrivacyActive(settings) ? 'Hidden' : 'Hide'}</span>
+          </button>
           <button className="secondary" onClick={onOpenCsvImport}>Import CSV</button>
           <button className="primary" onClick={() => setEditingTx({})} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>+</span> Record Transaction
@@ -6130,6 +6224,19 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [statementAsset, setStatementAsset] = useState(null);
+  const [privacyMode, setPrivacyMode] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('networth_privacy_mode') === 'true' : false;
+  });
+
+  const togglePrivacy = () => {
+    setPrivacyMode(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('networth_privacy_mode', String(next));
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -6333,7 +6440,7 @@ function App() {
     },
   ];
 
-  const s = { ...settings, currency_symbol: currencySymbol };
+  const s = { ...settings, currency_symbol: currencySymbol, privacy_mode: privacyMode, togglePrivacy };
 
   const pages = {
     dashboard: <Dashboard settings={s} categories={categories} />,
@@ -6411,7 +6518,7 @@ function App() {
     subscriptions: <Subscriptions settings={s} categories={categories} />,
     insurance: <InsurancePortfolio settings={s} categories={categories} />,
     history: <History settings={s} />,
-    settings: <Settings settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} onLogout={logout} />,
+    settings: <Settings settings={s} setSettings={setSettings} categories={categories} setCategories={setCategories} onLogout={logout} />,
   };
 
   return (
@@ -6427,11 +6534,23 @@ function App() {
               </div>
             </div>
           )}
-          <button className="collapse-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} aria-label="Toggle Sidebar">
-            <span className="hamburger-line"></span>
-            <span className="hamburger-line"></span>
-            <span className="hamburger-line"></span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              type="button"
+              className="collapse-btn"
+              onClick={togglePrivacy}
+              title={privacyMode ? "Show Balances & Transactions (Privacy Mode Active)" : "Hide Balances & Transactions for Privacy"}
+              style={{ color: privacyMode ? '#f87171' : '#94a3b8' }}
+              aria-label="Toggle Privacy Mode"
+            >
+              {privacyMode ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+            </button>
+            <button className="collapse-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} aria-label="Toggle Sidebar">
+              <span className="hamburger-line"></span>
+              <span className="hamburger-line"></span>
+              <span className="hamburger-line"></span>
+            </button>
+          </div>
         </div>
         {navItems.map(item => (
           <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); if (typeof window !== 'undefined' && window.innerWidth <= 768) setSidebarCollapsed(true); }}>
