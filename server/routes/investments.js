@@ -179,7 +179,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// POST record interest payout for FD/RD
+// POST record interest payout for FD/RD/Bonds
 router.post('/:id/record-interest', async (req, res) => {
   try {
     const db = getDb();
@@ -192,11 +192,17 @@ router.post('/:id/record-interest', async (req, res) => {
     // Auto-calculate if amount not provided or <= 0
     let amt = Number(amount);
     if (isNaN(amt) || amt <= 0) {
-      const principal = Number(item.buy_price || 0);
+      const units = Number(item.quantity || 1);
+      const isBondCat = String(item.category || '').toLowerCase().includes('bond');
+      const principal = isBondCat ? Number(item.buy_price || 0) * units : Number(item.buy_price || 0);
       const rate = Number(item.interest_rate || 0);
       const freq = item.payout_frequency || 'Monthly Payout';
       if (freq === 'Quarterly Payout') {
         amt = Number(((principal * (rate / 100)) / 4).toFixed(2));
+      } else if (freq === 'Half-Yearly Payout' || freq === 'Semi-Annual Payout') {
+        amt = Number(((principal * (rate / 100)) / 2).toFixed(2));
+      } else if (freq === 'Annual Payout' || freq === 'Yearly Payout') {
+        amt = Number(((principal * (rate / 100))).toFixed(2));
       } else {
         amt = Number(((principal * (rate / 100)) / 12).toFixed(2));
       }

@@ -300,14 +300,14 @@ function initSchema(db) {
   ensureAssetColumns(db);
   ensureLiabilityColumns(db);
   ensureCashflowColumns(db);
-  ensureCategoriesColumns(db);
-  ensureInsuranceTable(db);
 
   // Auto-seed default categories if none exist (e.g., fresh Electron install)
   const catCount = db.prepare('SELECT COUNT(*) AS cnt FROM categories').get();
   if (!catCount || catCount.cnt === 0) {
     seedDefaultCategories(db);
   }
+  ensureCategoriesColumns(db);
+  ensureInsuranceTable(db);
 }
 
 function ensureBudgetColumns(db) {
@@ -465,6 +465,7 @@ function ensureCategoriesColumns(db) {
   ensureCat('ETF', 'asset');
   ensureCat('Fixed Deposit (FD)', 'investment');
   ensureCat('Recurring Deposit (RD)', 'investment');
+  ensureCat('Bonds', 'investment');
   db.prepare("DELETE FROM categories WHERE name = 'FD/RD' AND type = 'investment'").run();
   db.prepare("UPDATE investments SET category = 'Fixed Deposit (FD)' WHERE category = 'FD/RD'").run();
 }

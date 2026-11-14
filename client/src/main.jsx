@@ -184,8 +184,33 @@ function isRd(category) {
   );
 }
 
+function isBond(category) {
+  if (!category) return false;
+  const s = String(category).trim().toLowerCase();
+  return s === 'bonds' || s === 'bond' || s.includes('bond');
+}
+
 function isFdorRd(category) {
   return isFd(category) || isRd(category);
+}
+
+function isFixedIncome(category) {
+  return isFd(category) || isRd(category) || isBond(category);
+}
+
+function hasPeriodicPayout(category, payout_frequency) {
+  if (!isFixedIncome(category)) return false;
+  const f = String(payout_frequency || '').trim().toLowerCase();
+  if (!f || f === 'payment on maturity') return false;
+  return (
+    f.includes('monthly') ||
+    f.includes('quarterly') ||
+    f.includes('half') ||
+    f.includes('semi') ||
+    f.includes('annual') ||
+    f.includes('yearly') ||
+    f.includes('payout')
+  );
 }
 
 function calculateTenure(startDateStr, endDateStr) {
@@ -1064,6 +1089,17 @@ function Modal({ title, fields, initial, onCancel, onSave, settings }) {
         if (!payload.current_price && payload.buy_price) {
           payload.current_price = payload.buy_price;
         }
+      } else if (isBond(payload.category)) {
+        payload.ticker = '';
+        if (!payload.quantity || Number(payload.quantity) <= 0) {
+          payload.quantity = 1;
+        }
+        if (payload.payout_frequency === undefined || payload.payout_frequency === '') {
+          payload.payout_frequency = 'Payment on Maturity';
+        }
+        if (!payload.current_price && payload.buy_price) {
+          payload.current_price = payload.buy_price;
+        }
       }
       await onSave(payload);
     } catch(err) {
@@ -1140,11 +1176,18 @@ function Modal({ title, fields, initial, onCancel, onSave, settings }) {
                       if (f.name === 'currency') handleCurrencyChange(val);
                       else {
                         const next = { ...form, [f.name]: val };
-                        if (f.name === 'category' && isFdorRd(val)) {
-                          if (!next.payout_frequency) next.payout_frequency = 'Payment on Maturity';
-                          if (!next.buy_date) next.buy_date = new Date().toISOString().split('T')[0];
-                          next.quantity = 1;
-                          next.ticker = '';
+                        if (f.name === 'category') {
+                          if (isFdorRd(val)) {
+                            if (!next.payout_frequency) next.payout_frequency = 'Payment on Maturity';
+                            if (!next.buy_date) next.buy_date = new Date().toISOString().split('T')[0];
+                            next.quantity = 1;
+                            next.ticker = '';
+                          } else if (isBond(val)) {
+                            if (!next.payout_frequency) next.payout_frequency = 'Payment on Maturity';
+                            if (!next.buy_date) next.buy_date = new Date().toISOString().split('T')[0];
+                            if (!next.quantity) next.quantity = 1;
+                            next.ticker = '';
+                          }
                         }
                         setForm(next);
                       }
@@ -1168,7 +1211,7 @@ function Modal({ title, fields, initial, onCancel, onSave, settings }) {
                       onChange={e => {
                         const val = e.target.value;
                         const next = { ...form, [f.name]: val };
-                        if (isFdorRd(next.category)) {
+                        if (isFdorRd(next.category) || isBond(next.category)) {
                           if ((f.name === 'buy_date' || f.name === 'maturity_date') && !next.tenure) {
                             const autoT = calculateTenure(next.buy_date, next.maturity_date);
                             if (autoT) next.tenure = autoT;
@@ -1308,28 +1351,50 @@ function UpdatePriceModal({ asset, settings, onCancel, onSave }) {
 }
 
 function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, onSuccess }) {
-  const principal = Number(investment.buy_price || 0);
+  const isBondAsset = isBond(investment.category);
+  const units = isBondAsset ? Number(investment.quantity || 1) : 1;
+  const principal = isBondAsset
+    ? Number(investment.buy_price || 0) * units
+    : Number(investment.buy_price || 0);
   const rate = Number(investment.interest_rate || 0);
-  const freq = investment.payout_frequency || 'Monthly Payout';
+  const [payoutFreq, setPayoutFreq] = useState(investment.payout_frequency || 'Monthly Payout');
 
-  // Compute expected interest payout
-  let defaultInterest = 0;
-  if (freq === 'Quarterly Payout') {
-    defaultInterest = Number(((principal * (rate / 100)) / 4).toFixed(2));
-  } else {
-    defaultInterest = Number(((principal * (rate / 100)) / 12).toFixed(2));
-  }
+  // Compute standard periodic payouts
+  const monthlyInterest = Number(((principal * (rate / 100)) / 12).toFixed(2));
+  const quarterlyInterest = Number(((principal * (rate / 100)) / 4).toFixed(2));
+  const halfYearlyInterest = Number(((principal * (rate / 100)) / 2).toFixed(2));
+  const annualInterest = Number(((principal * (rate / 100))).toFixed(2));
 
-  const [interestAmount, setInterestAmount] = useState(defaultInterest > 0 ? defaultInterest : '');
+  const getAmountForFreq = (f) => {
+    if (f === 'Quarterly Payout') return quarterlyInterest;
+    if (f === 'Half-Yearly Payout' || f === 'Semi-Annual Payout') return halfYearlyInterest;
+    if (f === 'Annual Payout' || f === 'Yearly Payout') return annualInterest;
+    return monthlyInterest;
+  };
+
+  const [interestAmount, setInterestAmount] = useState(() => {
+    const defaultAmt = getAmountForFreq(investment.payout_frequency);
+    return defaultAmt > 0 ? defaultAmt : '';
+  });
   const [dateReceived, setDateReceived] = useState(() => new Date().toISOString().split('T')[0]);
   const [targetAccountId, setTargetAccountId] = useState(() => investment.receiving_account_id || (bankAccounts?.[0]?.id || ''));
   const [adjustBalance, setAdjustBalance] = useState(true);
   const [memo, setMemo] = useState(() => {
     const monthName = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
-    return `Interest received - ${investment.asset_name} (${monthName})`;
+    const freqTag = (investment.payout_frequency || 'Monthly').replace(' Payout', '');
+    return `${freqTag} interest received - ${investment.asset_name} (${monthName})`;
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const handleSelectFrequency = (selectedFreq) => {
+    setPayoutFreq(selectedFreq);
+    const amt = getAmountForFreq(selectedFreq);
+    if (amt > 0) setInterestAmount(amt);
+    const monthName = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
+    const freqTag = selectedFreq.replace(' Payout', '');
+    setMemo(`${freqTag} interest received - ${investment.asset_name} (${monthName})`);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1365,7 +1430,7 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
             <span>💰</span> Record Interest Received
           </h2>
           <span className="badge" style={{ background: '#064e3b', color: '#6ee7b7', border: '1px solid #059669', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}>
-            {isRd(investment.category) ? 'Recurring Deposit (RD)' : isFd(investment.category) ? 'Fixed Deposit (FD)' : 'Deposit'} • {freq}
+            {isRd(investment.category) ? 'Recurring Deposit (RD)' : isFd(investment.category) ? 'Fixed Deposit (FD)' : isBond(investment.category) ? 'Bond' : 'Investment'} • {payoutFreq}
           </span>
         </div>
         
@@ -1378,15 +1443,19 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
         <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #334155', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', fontSize: '13px' }}>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>{isRd(investment.category) ? 'RECURRING DEPOSIT' : 'FIXED DEPOSIT'}</span>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>
+                {isRd(investment.category) ? 'RECURRING DEPOSIT' : isFd(investment.category) ? 'FIXED DEPOSIT' : isBond(investment.category) ? 'BOND / DEBENTURE' : 'INVESTMENT'}
+              </span>
               <strong style={{ color: '#f8fafc' }}>{investment.asset_name}</strong>
             </div>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>PRINCIPAL AMOUNT</span>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>
+                {isBond(investment.category) ? `TOTAL INVESTED (${units} ${units === 1 ? 'Unit' : 'Units'})` : 'PRINCIPAL AMOUNT'}
+              </span>
               <strong style={{ color: '#38bdf8' }}>{money(principal, settings)}</strong>
             </div>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>INTEREST RATE</span>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>INTEREST / COUPON RATE</span>
               <strong style={{ color: '#10b981' }}>{rate}% p.a.</strong>
             </div>
             <div>
@@ -1395,6 +1464,79 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
                 {investment.last_interest_date ? formatDate(investment.last_interest_date, settings) : 'None recorded yet'}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Payout Options: Quick selection for same fixed amounts */}
+        <div style={{ marginBottom: '16px', background: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px 14px' }}>
+          <span style={{ fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>
+            Select Payout Frequency to auto-fill standard amount:
+          </span>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => handleSelectFrequency('Monthly Payout')}
+              style={{
+                padding: '4px 10px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: payoutFreq === 'Monthly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                background: payoutFreq === 'Monthly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                color: payoutFreq === 'Monthly Payout' ? '#10b981' : '#94a3b8',
+                cursor: 'pointer',
+                fontWeight: payoutFreq === 'Monthly Payout' ? 600 : 400
+              }}
+            >
+              📅 Monthly ({money(monthlyInterest, settings)})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectFrequency('Quarterly Payout')}
+              style={{
+                padding: '4px 10px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: payoutFreq === 'Quarterly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                background: payoutFreq === 'Quarterly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                color: payoutFreq === 'Quarterly Payout' ? '#10b981' : '#94a3b8',
+                cursor: 'pointer',
+                fontWeight: payoutFreq === 'Quarterly Payout' ? 600 : 400
+              }}
+            >
+              📊 Quarterly ({money(quarterlyInterest, settings)})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectFrequency('Half-Yearly Payout')}
+              style={{
+                padding: '4px 10px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: payoutFreq === 'Half-Yearly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                background: payoutFreq === 'Half-Yearly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                color: payoutFreq === 'Half-Yearly Payout' ? '#10b981' : '#94a3b8',
+                cursor: 'pointer',
+                fontWeight: payoutFreq === 'Half-Yearly Payout' ? 600 : 400
+              }}
+            >
+              🌓 Half-Yearly ({money(halfYearlyInterest, settings)})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectFrequency('Annual Payout')}
+              style={{
+                padding: '4px 10px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: payoutFreq === 'Annual Payout' ? '1px solid #10b981' : '1px solid #334155',
+                background: payoutFreq === 'Annual Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                color: payoutFreq === 'Annual Payout' ? '#10b981' : '#94a3b8',
+                cursor: 'pointer',
+                fontWeight: payoutFreq === 'Annual Payout' ? 600 : 400
+              }}
+            >
+              🗓️ Annual ({money(annualInterest, settings)})
+            </button>
           </div>
         </div>
 
@@ -1837,18 +1979,18 @@ function Dashboard({ settings, categories }) {
     { name: 'date', label: 'Date', type: 'date' },
     { name: 'description', label: 'Description' }
   ] : quickType === 'investment' ? [
-    { name: 'asset_name', label: (form) => isFdorRd(form?.category) ? 'Deposit / Asset Name' : 'Name' },
+    { name: 'asset_name', label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : isBond(form?.category) ? 'Bond / Debenture Name' : 'Name' },
     { name: 'category', label: 'Category', type: 'select', options: getCategoryOptions(['investment']) },
-    { name: 'platform', label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : 'Platform' },
-    { name: 'quantity', label: 'Quantity', type: 'number', condition: (form) => !isFdorRd(form?.category) },
-    { name: 'buy_price', label: (form) => isRd(form?.category) ? 'Monthly Deposit (₹)' : isFd(form?.category) ? 'Principal Amount (₹)' : 'Buy Price', type: 'number' },
-    { name: 'current_price', label: (form) => isFdorRd(form?.category) ? 'Current / Maturity Value' : 'Current Price', type: 'number' },
-    { name: 'buy_date', label: (form) => isRd(form?.category) ? 'Start Date' : isFd(form?.category) ? 'Deposit Date' : 'Buy Date', type: 'date' },
-    { name: 'tenure', label: 'Tenure', placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 2 Years' : 'e.g. 1 Year, 18 Months', condition: (form) => isFdorRd(form?.category) },
-    { name: 'interest_rate', label: 'Interest Rate (%)', type: 'number', condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds' },
-    { name: 'maturity_date', label: 'Maturity Date', type: 'date', condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds' },
-    { name: 'payout_frequency', label: 'Interest Payout Option', type: 'select', options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout'], condition: (form) => isFdorRd(form?.category) },
-    { name: 'is_sip', label: 'Is SIP / Recurring?', type: 'checkbox', condition: (form) => isRd(form?.category) || !isFdorRd(form?.category) },
+    { name: 'platform', label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : isBond(form?.category) ? 'Platform / Broker' : 'Platform' },
+    { name: 'quantity', label: (form) => isBond(form?.category) ? 'Units' : 'Quantity', type: 'number', condition: (form) => !isFdorRd(form?.category) },
+    { name: 'buy_price', label: (form) => isRd(form?.category) ? 'Monthly Deposit (₹)' : isFd(form?.category) ? 'Principal Amount (₹)' : isBond(form?.category) ? 'Price per Unit (₹)' : 'Buy Price', type: 'number' },
+    { name: 'current_price', label: (form) => isFdorRd(form?.category) ? 'Current / Maturity Value' : isBond(form?.category) ? 'Current Price per Unit' : 'Current Price', type: 'number' },
+    { name: 'buy_date', label: (form) => isRd(form?.category) ? 'Start Date' : isFd(form?.category) ? 'Deposit Date' : isBond(form?.category) ? 'Investment Date' : 'Buy Date', type: 'date' },
+    { name: 'tenure', label: 'Tenure', placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 2 Years' : isBond(form?.category) ? 'e.g. 2 Years, 36 Months' : 'e.g. 1 Year, 18 Months', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
+    { name: 'interest_rate', label: (form) => isBond(form?.category) ? 'Interest / Coupon Rate (%)' : 'Interest Rate (%)', type: 'number', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
+    { name: 'maturity_date', label: 'Maturity Date', type: 'date', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
+    { name: 'payout_frequency', label: 'Interest Payout Option', type: 'select', options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout', 'Half-Yearly Payout', 'Annual Payout'], condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
+    { name: 'is_sip', label: 'Is SIP / Recurring?', type: 'checkbox', condition: (form) => (isRd(form?.category) || !isFdorRd(form?.category)) && !isBond(form?.category) },
     { name: 'notes', label: 'Notes' }
   ] : [];
 
@@ -2296,7 +2438,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.3.9 • Built with ❤️
+                Version 2.4.0 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -2663,6 +2805,18 @@ function PortfolioTracker({ settings, categories }) {
         const match = bankAccounts.find(b => String(b.id) === String(payload.receiving_account_id));
         if (match) payload.receiving_account_name = match.name;
       }
+    } else if (isBond(payload.category)) {
+      payload.ticker = '';
+      if (!payload.quantity || Number(payload.quantity) <= 0) {
+        payload.quantity = 1;
+      }
+      if (!payload.current_price && payload.buy_price) {
+        payload.current_price = payload.buy_price;
+      }
+      if (payload.receiving_account_id) {
+        const match = bankAccounts.find(b => String(b.id) === String(payload.receiving_account_id));
+        if (match) payload.receiving_account_name = match.name;
+      }
     }
     if (form.id) await api(`/investments/${form.id}`, { method: 'PUT', body: JSON.stringify(payload) });
     else await api('/investments', { method: 'POST', body: JSON.stringify(payload) });
@@ -2764,18 +2918,19 @@ function PortfolioTracker({ settings, categories }) {
   const fields = [
     {
       name: 'asset_name',
-      label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : 'Asset Name',
-      placeholder: (form) => isRd(form?.category) ? 'e.g. SBI Monthly RD, ICICI RD' : isFd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI FD' : 'e.g. Apple, Bitcoin, Reliance'
+      label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : isBond(form?.category) ? 'Bond / Debenture Name' : 'Asset Name',
+      placeholder: (form) => isRd(form?.category) ? 'e.g. SBI Monthly RD, ICICI RD' : isFd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI FD' : isBond(form?.category) ? 'e.g. Sindhuja Microcredit, GOI Bond 7.18%, Tata Capital NCD' : 'e.g. Apple, Bitcoin, Reliance'
     },
     { name: 'category', label: 'Category', type: 'select', options: categories.investment },
     {
       name: 'platform',
-      label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : 'Platform',
-      placeholder: (form) => isFdorRd(form?.category) ? 'e.g. HDFC Bank, SBI, ICICI' : 'e.g. Zerodha, Binance'
+      label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : isBond(form?.category) ? 'Platform / Broker' : 'Platform',
+      placeholder: (form) => isFdorRd(form?.category) ? 'e.g. HDFC Bank, SBI, ICICI' : isBond(form?.category) ? 'e.g. Wint Wealth, Zerodha, Grip Invest' : 'e.g. Zerodha, Binance'
     },
     {
       name: 'quantity',
-      label: 'Quantity',
+      label: (form) => isBond(form?.category) ? 'Units' : 'Quantity',
+      placeholder: (form) => isBond(form?.category) ? 'e.g. 10' : 'e.g. 5',
       type: 'number',
       condition: (form) => !isFdorRd(form?.category)
     },
@@ -2785,64 +2940,70 @@ function PortfolioTracker({ settings, categories }) {
         ? `Monthly Deposit / Installment (${settings?.currency_symbol || '₹'})`
         : isFd(form?.category)
           ? `Principal / Deposit Amount (${settings?.currency_symbol || '₹'})`
-          : 'Buy Price',
+          : isBond(form?.category)
+            ? `Price per Unit / Face Value (${settings?.currency_symbol || '₹'})`
+            : 'Buy Price',
       type: 'number'
     },
     {
       name: 'current_price',
-      label: (form) => isFdorRd(form?.category) ? `Current / Maturity Value (${settings?.currency_symbol || '₹'})` : 'Current Price',
+      label: (form) => isFdorRd(form?.category)
+        ? `Current / Maturity Value (${settings?.currency_symbol || '₹'})`
+        : isBond(form?.category)
+          ? `Current Price per Unit (${settings?.currency_symbol || '₹'})`
+          : 'Current Price',
       type: 'number'
     },
     {
       name: 'ticker',
       label: 'Ticker Symbol (Yahoo Finance)',
       placeholder: 'e.g. RELIANCE.NS, AAPL',
-      condition: (form) => !isFdorRd(form?.category)
+      condition: (form) => !isFdorRd(form?.category) && !isBond(form?.category)
     },
     {
       name: 'interest_rate',
-      label: 'Interest Rate (%)',
+      label: (form) => isBond(form?.category) ? 'Interest / Coupon Rate (%)' : 'Interest Rate (%)',
       type: 'number',
-      placeholder: 'e.g. 7.5',
-      condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds'
+      placeholder: (form) => isBond(form?.category) ? 'e.g. 9.5' : 'e.g. 7.5',
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     {
       name: 'buy_date',
-      label: (form) => isRd(form?.category) ? 'Start / Deposit Date' : isFd(form?.category) ? 'Deposit Date' : 'Buy Date',
+      label: (form) => isRd(form?.category) ? 'Start / Deposit Date' : isFd(form?.category) ? 'Deposit Date' : isBond(form?.category) ? 'Investment / Purchase Date' : 'Buy Date',
       type: 'date'
     },
     {
       name: 'tenure',
       label: 'Tenure',
-      placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 24 Months, 2 Years' : 'e.g. 1 Year, 18 Months, 555 Days',
-      condition: (form) => isFdorRd(form?.category)
+      placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 24 Months, 2 Years' : isBond(form?.category) ? 'e.g. 2 Years, 36 Months' : 'e.g. 1 Year, 18 Months, 555 Days',
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     {
       name: 'maturity_date',
       label: 'Maturity Date',
       type: 'date',
-      condition: (form) => isFdorRd(form?.category) || form?.category === 'Bonds'
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     {
       name: 'payout_frequency',
       label: 'Interest Payout Option',
       type: 'select',
-      options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout'],
-      condition: (form) => isFdorRd(form?.category)
+      options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout', 'Half-Yearly Payout', 'Annual Payout'],
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     {
       name: 'receiving_account_id',
       label: 'Receiving Bank Account (Interest & Maturity)',
       type: 'select',
       options: bankAccountOptions,
-      condition: (form) => isFdorRd(form?.category)
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
     {
       name: 'is_sip',
       label: (form) => isRd(form?.category) ? 'Monthly Recurring Installment (RD)' : 'Is SIP?',
       type: 'checkbox',
-      condition: (form) => isRd(form?.category) || !isFdorRd(form?.category)
+      condition: (form) => (isRd(form?.category) || !isFdorRd(form?.category)) && !isBond(form?.category)
     },
     { name: 'notes', label: 'Notes' }
   ];
@@ -2965,7 +3126,7 @@ function PortfolioTracker({ settings, categories }) {
                       </td>
                       <td><span className="badge" style={{ background: '#334155', color: '#e2e8f0', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.category}</span></td>
                       <td style={{ textAlign: 'right' }}>
-                        {isFdorRd(p.category) ? `${p.lots.length} Deposit${p.lots.length > 1 ? 's' : ''}` : p.total_quantity}
+                        {isFdorRd(p.category) ? `${p.lots.length} Deposit${p.lots.length > 1 ? 's' : ''}` : isBond(p.category) ? `${p.total_quantity} Unit${p.total_quantity !== 1 ? 's' : ''}` : p.total_quantity}
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div>{money(showInrPrimary ? stats.inrAvgBuy : stats.nativeAvgBuy, showInrPrimary ? settings : { currency: stats.nativeCurrency })}</div>
@@ -3012,7 +3173,7 @@ function PortfolioTracker({ settings, categories }) {
                       </td>
                       <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          {isFdorRd(p.category) && p.lots.some(l => l.payout_frequency === 'Monthly Payout' || l.payout_frequency === 'Quarterly Payout') && (
+                          {p.lots.some(l => hasPeriodicPayout(p.category, l.payout_frequency)) && (
                             <button
                               className="icon-btn"
                               style={{
@@ -3026,10 +3187,10 @@ function PortfolioTracker({ settings, categories }) {
                                 borderRadius: '6px',
                                 cursor: 'pointer'
                               }}
-                              title="Record this month/quarter interest received"
+                              title="Record interest received"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const lotToReceive = p.lots.find(l => l.payout_frequency === 'Monthly Payout' || l.payout_frequency === 'Quarterly Payout') || p.lots[0];
+                                const lotToReceive = p.lots.find(l => hasPeriodicPayout(p.category, l.payout_frequency)) || p.lots[0];
                                 setReceiveInterestModal(lotToReceive);
                               }}
                             >
@@ -3068,7 +3229,7 @@ function PortfolioTracker({ settings, categories }) {
                             {lot.last_interest_date ? ` • Last Recv: ${formatDate(lot.last_interest_date, settings)}` : ''}
                           </td>
                           <td style={{ textAlign: 'right', fontSize: '13px' }}>
-                            {isFdorRd(p.category) ? '-' : lot.quantity}
+                            {isFdorRd(p.category) ? '-' : isBond(p.category) ? `${lot.quantity} Unit${lot.quantity !== 1 ? 's' : ''}` : lot.quantity}
                           </td>
                           <td style={{ textAlign: 'right', fontSize: '13px' }}>
                             <div>{money(showInrPrimary ? lotStats.inrAvgBuy : lotStats.nativeAvgBuy, showInrPrimary ? settings : { currency: lotStats.nativeCurrency })}</div>
@@ -3100,7 +3261,7 @@ function PortfolioTracker({ settings, categories }) {
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              {isFdorRd(p.category) && (lot.payout_frequency === 'Monthly Payout' || lot.payout_frequency === 'Quarterly Payout') && (
+                              {hasPeriodicPayout(p.category, lot.payout_frequency) && (
                                 <button
                                   className="icon-btn"
                                   style={{
@@ -3114,7 +3275,7 @@ function PortfolioTracker({ settings, categories }) {
                                     borderRadius: '4px',
                                     cursor: 'pointer'
                                   }}
-                                  title="Record this month/quarter interest received"
+                                  title="Record periodic interest received"
                                   onClick={() => setReceiveInterestModal(lot)}
                                 >
                                   💰 Receive Interest
@@ -3162,7 +3323,7 @@ function PortfolioTracker({ settings, categories }) {
 
       {editing && (
         <Modal 
-          title={`${editing.id ? 'Edit' : 'Add'} ${isRd(editing.category) ? 'Recurring Deposit (RD)' : isFd(editing.category) ? 'Fixed Deposit (FD)' : 'Investment Lot'}`} 
+          title={`${editing.id ? 'Edit' : 'Add'} ${isRd(editing.category) ? 'Recurring Deposit (RD)' : isFd(editing.category) ? 'Fixed Deposit (FD)' : isBond(editing.category) ? 'Bond / Debenture' : 'Investment Lot'}`} 
           fields={fields} 
           initial={editing} 
           onCancel={() => setEditing(null)} 

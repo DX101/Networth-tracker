@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
       liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
       income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
       expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
-      investment: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
+      investment: ['Stocks', 'Mutual Funds', 'Crypto', 'Fixed Deposit (FD)', 'Recurring Deposit (RD)', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
       transfer: ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']
     };
     for (const [type, defaults] of Object.entries(DEFAULT_CATEGORIES)) {
