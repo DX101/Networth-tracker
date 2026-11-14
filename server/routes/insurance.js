@@ -69,7 +69,8 @@ router.post('/', async (req, res) => {
       policy_name, provider, policy_type, policy_number,
       sum_assured, cash_value, premium_amount, premium_frequency,
       next_due_date, start_date, maturity_date, account_id,
-      nominee, status, notes
+      nominee, status, notes,
+      policy_term, maturity_payout_option, maturity_amount, vested_bonus, loyalty_addition
     } = req.body;
 
     if (!policy_name || !String(policy_name).trim()) {
@@ -84,8 +85,9 @@ router.post('/', async (req, res) => {
         policy_name, provider, policy_type, policy_number,
         sum_assured, cash_value, premium_amount, premium_frequency,
         next_due_date, start_date, maturity_date, account_id,
-        nominee, status, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        nominee, status, notes,
+        policy_term, maturity_payout_option, maturity_amount, vested_bonus, loyalty_addition
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -103,7 +105,12 @@ router.post('/', async (req, res) => {
       account_id ? Number(account_id) : null,
       nominee || '',
       status || 'active',
-      notes || ''
+      notes || '',
+      policy_term || '',
+      maturity_payout_option || '',
+      maturity_amount !== undefined && maturity_amount !== null && maturity_amount !== '' ? Number(maturity_amount) : 0,
+      vested_bonus !== undefined && vested_bonus !== null && vested_bonus !== '' ? Number(vested_bonus) : 0,
+      loyalty_addition !== undefined && loyalty_addition !== null && loyalty_addition !== '' ? Number(loyalty_addition) : 0
     );
 
     await takeSnapshot();
@@ -133,7 +140,8 @@ router.put('/:id', async (req, res) => {
       policy_name, provider, policy_type, policy_number,
       sum_assured, cash_value, premium_amount, premium_frequency,
       next_due_date, start_date, maturity_date, account_id,
-      nominee, status, notes
+      nominee, status, notes,
+      policy_term, maturity_payout_option, maturity_amount, vested_bonus, loyalty_addition
     } = req.body;
 
     const stmt = db.prepare(`
@@ -141,7 +149,9 @@ router.put('/:id', async (req, res) => {
         policy_name = ?, provider = ?, policy_type = ?, policy_number = ?,
         sum_assured = ?, cash_value = ?, premium_amount = ?, premium_frequency = ?,
         next_due_date = ?, start_date = ?, maturity_date = ?, account_id = ?,
-        nominee = ?, status = ?, notes = ?, updated_at = datetime('now')
+        nominee = ?, status = ?, notes = ?,
+        policy_term = ?, maturity_payout_option = ?, maturity_amount = ?, vested_bonus = ?, loyalty_addition = ?,
+        updated_at = datetime('now')
       WHERE id = ?
     `);
 
@@ -161,6 +171,11 @@ router.put('/:id', async (req, res) => {
       nominee !== undefined ? nominee : existing.nominee,
       status !== undefined ? status : existing.status,
       notes !== undefined ? notes : existing.notes,
+      policy_term !== undefined ? policy_term : (existing.policy_term || ''),
+      maturity_payout_option !== undefined ? maturity_payout_option : (existing.maturity_payout_option || ''),
+      maturity_amount !== undefined ? (Number(maturity_amount) || 0) : (existing.maturity_amount || 0),
+      vested_bonus !== undefined ? (Number(vested_bonus) || 0) : (existing.vested_bonus || 0),
+      loyalty_addition !== undefined ? (Number(loyalty_addition) || 0) : (existing.loyalty_addition || 0),
       req.params.id
     );
 

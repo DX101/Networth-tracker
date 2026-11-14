@@ -489,10 +489,22 @@ function ensureInsuranceTable(db) {
       nominee TEXT DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active',
       notes TEXT DEFAULT '',
+      policy_term TEXT DEFAULT '',
+      maturity_payout_option TEXT DEFAULT 'Payment on Maturity (Lump Sum)',
+      maturity_amount REAL DEFAULT 0,
+      vested_bonus REAL DEFAULT 0,
+      loyalty_addition REAL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  const cols = db.prepare('PRAGMA table_info(insurance)').all().map(c => c.name);
+  if (!cols.includes('policy_term')) db.exec("ALTER TABLE insurance ADD COLUMN policy_term TEXT DEFAULT ''");
+  if (!cols.includes('maturity_payout_option')) db.exec("ALTER TABLE insurance ADD COLUMN maturity_payout_option TEXT DEFAULT 'Payment on Maturity (Lump Sum)'");
+  if (!cols.includes('maturity_amount')) db.exec("ALTER TABLE insurance ADD COLUMN maturity_amount REAL DEFAULT 0");
+  if (!cols.includes('vested_bonus')) db.exec("ALTER TABLE insurance ADD COLUMN vested_bonus REAL DEFAULT 0");
+  if (!cols.includes('loyalty_addition')) db.exec("ALTER TABLE insurance ADD COLUMN loyalty_addition REAL DEFAULT 0");
 }
 
 function seedDefaultCategories(db) {

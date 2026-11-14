@@ -116,3 +116,4 @@ console.log('✓ Test 4 Passed: Chart ticks masked when privacy is active.');
 console.log('\n====================================================');
 console.log('🎉 ALL PRIVACY MODE DEBUG TESTS PASSED! 🎉');
 console.log('====================================================');
+

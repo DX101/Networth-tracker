@@ -266,6 +266,26 @@ function calculateTenure(startDateStr, endDateStr) {
   return `${diffDays} Days`;
 }
 
+function calculateInsuranceTerm(startDateStr, endDateStr) {
+  if (!startDateStr || !endDateStr) return '';
+  const d1 = new Date(startDateStr);
+  const d2 = new Date(endDateStr);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime()) || d2 <= d1) return '';
+  let years = d2.getFullYear() - d1.getFullYear();
+  let months = d2.getMonth() - d1.getMonth();
+  let days = d2.getDate() - d1.getDate();
+  if (days < -25) { months -= 1; }
+  else if (days >= 25) { months += 1; }
+  if (months < 0) { years -= 1; months += 12; }
+  else if (months >= 12) { years += Math.floor(months / 12); months = months % 12; }
+  if (years > 0 && months === 0) return `${years} ${years === 1 ? 'Year' : 'Years'}`;
+  if (years > 0 && months > 0) return `${years} ${years === 1 ? 'Year' : 'Years'} ${months} ${months === 1 ? 'Month' : 'Months'}`;
+  if (months > 0) return `${months} ${months === 1 ? 'Month' : 'Months'}`;
+  const diffTime = d2.getTime() - d1.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  return `${diffDays} Days`;
+}
+
 function MiniRow({ label, value, settings, tone = '', suffix = '' }) {
   return <div className="mini-row"><span>{label}</span><strong className={tone}>{money(value, settings)}{suffix}</strong></div>;
 }
@@ -2523,7 +2543,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             
             <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ color: '#64748b', fontSize: '13px' }}>
-                Version 2.4.1 • Built with ❤️
+                Version 2.4.2 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
@@ -5477,26 +5497,57 @@ function PayPremiumModal({ policy, assets, settings, onCancel, onConfirm }) {
 
 // ─── INSURANCE POLICY MODAL ──────────────────────────────────────────────────
 function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
-  const [form, setForm] = useState({
-    policy_name: '',
-    provider: '',
-    policy_type: 'term_life',
-    policy_number: '',
-    sum_assured: '',
-    cash_value: '',
-    premium_amount: '',
-    premium_frequency: 'annual',
-    next_due_date: '',
-    start_date: new Date().toISOString().split('T')[0],
-    maturity_date: '',
-    account_id: '',
-    nominee: '',
-    status: 'active',
-    notes: '',
-    ...(initial || {})
+  const [form, setForm] = useState(() => {
+    const start_date = initial?.start_date || new Date().toISOString().split('T')[0];
+    const maturity_date = initial?.maturity_date || '';
+    const policy_term = initial?.policy_term || calculateInsuranceTerm(start_date, maturity_date) || '';
+    return {
+      policy_name: '',
+      provider: '',
+      policy_type: 'term_life',
+      policy_number: '',
+      sum_assured: '',
+      cash_value: '',
+      premium_amount: '',
+      premium_frequency: 'annual',
+      next_due_date: '',
+      start_date,
+      maturity_date,
+      policy_term,
+      maturity_payout_option: 'Payment on Maturity + Accrued Bonuses',
+      maturity_amount: '',
+      vested_bonus: '',
+      loyalty_addition: '',
+      account_id: '',
+      nominee: '',
+      status: 'active',
+      notes: '',
+      ...(initial || {})
+    };
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const handleDateChange = (field, val) => {
+    setForm(prev => {
+      const nextStart = field === 'start_date' ? val : prev.start_date;
+      const nextMaturity = field === 'maturity_date' ? val : prev.maturity_date;
+      const autoTerm = calculateInsuranceTerm(nextStart, nextMaturity);
+      return {
+        ...prev,
+        [field]: val,
+        policy_term: autoTerm || prev.policy_term
+      };
+    });
+  };
+
+  const autoSuggestedSum = (Number(form.sum_assured) || 0) + (Number(form.vested_bonus) || 0) + (Number(form.loyalty_addition) || 0);
+
+  const calcSuggestedMaturity = () => {
+    if (autoSuggestedSum > 0) {
+      setForm(prev => ({ ...prev, maturity_amount: autoSuggestedSum }));
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -5510,6 +5561,9 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
         sum_assured: Number(form.sum_assured) || 0,
         cash_value: Number(form.cash_value) || 0,
         premium_amount: Number(form.premium_amount) || 0,
+        maturity_amount: form.maturity_amount !== '' && form.maturity_amount !== null ? Number(form.maturity_amount) : 0,
+        vested_bonus: form.vested_bonus !== '' && form.vested_bonus !== null ? Number(form.vested_bonus) : 0,
+        loyalty_addition: form.loyalty_addition !== '' && form.loyalty_addition !== null ? Number(form.loyalty_addition) : 0,
         account_id: form.account_id ? Number(form.account_id) : null
       });
     } catch (err) {
@@ -5518,32 +5572,30 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
     }
   };
 
-  const isCashValueType = ['endowment', 'ulip'].includes(form.policy_type);
-
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: '600px', width: '90%' }}>
+      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: '640px', width: '92%', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2>{initial?.id ? 'Edit Insurance Policy' : 'Add New Insurance Policy'}</h2>
         {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
 
         <div className="form-grid">
           <label>
-            Policy Name
+            Policy Name *
             <input
               type="text"
               required
-              placeholder="e.g. Click 2 Protect Life, Jeevan Labh"
+              placeholder="e.g. LIC's Nivesh Plus, Jeevan Labh"
               value={form.policy_name}
               onChange={e => setForm({ ...form, policy_name: e.target.value })}
             />
           </label>
 
           <label>
-            Provider / Insurer
+            Provider / Insurer *
             <input
               type="text"
               required
-              placeholder="e.g. HDFC Life, LIC, Star Health, ICICI"
+              placeholder="e.g. LIC, HDFC Life, ICICI Pru, Star Health"
               value={form.provider}
               onChange={e => setForm({ ...form, provider: e.target.value })}
             />
@@ -5568,9 +5620,37 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
             Policy Number
             <input
               type="text"
-              placeholder="e.g. POL-8934201"
+              placeholder="e.g. 507864590"
               value={form.policy_number}
               onChange={e => setForm({ ...form, policy_number: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Policy Commencement Date (DOC)
+            <input
+              type="date"
+              value={form.start_date || ''}
+              onChange={e => handleDateChange('start_date', e.target.value)}
+            />
+          </label>
+
+          <label>
+            Policy Maturity / Expiry Date
+            <input
+              type="date"
+              value={form.maturity_date || ''}
+              onChange={e => handleDateChange('maturity_date', e.target.value)}
+            />
+          </label>
+
+          <label>
+            Policy Term (Auto-calculated)
+            <input
+              type="text"
+              placeholder="e.g. 10 Years"
+              value={form.policy_term}
+              onChange={e => setForm({ ...form, policy_term: e.target.value })}
             />
           </label>
 
@@ -5579,34 +5659,82 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
             <input
               type="number"
               step="any"
-              placeholder="e.g. 10000000 (1 Cr)"
+              placeholder="e.g. 125000"
               value={form.sum_assured}
               onChange={e => setForm({ ...form, sum_assured: e.target.value })}
             />
           </label>
 
-          {isCashValueType ? (
-            <label>
-              Current Cash / Surrender Value (Adds to Net Worth)
-              <input
-                type="number"
-                step="any"
-                placeholder="0.00"
-                value={form.cash_value}
-                onChange={e => setForm({ ...form, cash_value: e.target.value })}
-              />
-            </label>
-          ) : (
-            <label>
-              Nominee Name
-              <input
-                type="text"
-                placeholder="e.g. Spouse / Parent"
-                value={form.nominee}
-                onChange={e => setForm({ ...form, nominee: e.target.value })}
-              />
-            </label>
-          )}
+          <label>
+            Payment on Maturity Option
+            <select
+              value={form.maturity_payout_option || 'Payment on Maturity + Accrued Bonuses'}
+              onChange={e => setForm({ ...form, maturity_payout_option: e.target.value })}
+            >
+              <option value="Payment on Maturity (Lump Sum)">Payment on Maturity (Lump Sum)</option>
+              <option value="Payment on Maturity + Accrued Bonuses">Payment on Maturity + Accrued Bonuses</option>
+              <option value="Periodic Survival / Money Back Payouts">Periodic Survival / Money Back Payouts</option>
+              <option value="Annuity / Monthly Pension">Annuity / Monthly Pension</option>
+              <option value="Settlement in Installments (5/10/15 Years)">Settlement in Installments (5/10/15 Years)</option>
+              <option value="No Maturity Benefit (Pure Term Cover)">No Maturity Benefit (Pure Term Cover)</option>
+            </select>
+          </label>
+
+          <label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Estimated Payment on Maturity ({settings.currency_symbol || '₹'})</span>
+              {autoSuggestedSum > 0 && (
+                <button
+                  type="button"
+                  style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                  onClick={calcSuggestedMaturity}
+                  title="Click to sum: Sum Assured + Vested Bonus + Loyalty Addition"
+                >
+                  ⚡ Auto-Sum ({money(autoSuggestedSum, settings)})
+                </button>
+              )}
+            </div>
+            <input
+              type="number"
+              step="any"
+              placeholder="e.g. 250000"
+              value={form.maturity_amount}
+              onChange={e => setForm({ ...form, maturity_amount: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Vested Bonus / Guaranteed Addition ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              placeholder="0.00"
+              value={form.vested_bonus}
+              onChange={e => setForm({ ...form, vested_bonus: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Interim Bonus / Loyalty Addition ({settings.currency_symbol || '₹'})
+            <input
+              type="number"
+              step="any"
+              placeholder="0.00"
+              value={form.loyalty_addition}
+              onChange={e => setForm({ ...form, loyalty_addition: e.target.value })}
+            />
+          </label>
+
+          <label>
+            Current Cash / Surrender Value (Adds To Net Worth)
+            <input
+              type="number"
+              step="any"
+              placeholder="0.00"
+              value={form.cash_value}
+              onChange={e => setForm({ ...form, cash_value: e.target.value })}
+            />
+          </label>
 
           <label>
             Premium Amount ({settings.currency_symbol || '₹'})
@@ -5629,6 +5757,7 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
               <option value="semi_annual">Semi-Annual (Half-Yearly)</option>
               <option value="quarterly">Quarterly</option>
               <option value="monthly">Monthly</option>
+              <option value="single_premium">Single Premium / One-Time</option>
             </select>
           </label>
 
@@ -5638,15 +5767,6 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
               type="date"
               value={form.next_due_date || ''}
               onChange={e => setForm({ ...form, next_due_date: e.target.value })}
-            />
-          </label>
-
-          <label>
-            Policy Maturity / Expiry Date
-            <input
-              type="date"
-              value={form.maturity_date || ''}
-              onChange={e => setForm({ ...form, maturity_date: e.target.value })}
             />
           </label>
 
@@ -5663,6 +5783,16 @@ function PolicyModal({ initial, assets, settings, onCancel, onSave }) {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label>
+            Nominee Name
+            <input
+              type="text"
+              placeholder="e.g. Spouse / Parent / Children"
+              value={form.nominee}
+              onChange={e => setForm({ ...form, nominee: e.target.value })}
+            />
           </label>
 
           <label>
@@ -5961,7 +6091,7 @@ function InsurancePortfolio({ settings, categories }) {
             return (
               <div key={policy.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155' }}>
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                     <div>
                       <h4 style={{ margin: 0, fontSize: '18px', color: '#f8fafc' }}>{policy.policy_name}</h4>
                       <span style={{ fontSize: '12px', color: '#94a3b8' }}>{policy.provider} {policy.policy_number ? `• #${policy.policy_number}` : ''}</span>
@@ -5976,7 +6106,21 @@ function InsurancePortfolio({ settings, categories }) {
                     </span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', fontSize: '11px', color: '#94a3b8', marginBottom: '12px' }}>
+                    {(policy.policy_term || calculateInsuranceTerm(policy.start_date, policy.maturity_date)) && (
+                      <span style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '4px', color: '#38bdf8', fontWeight: 600 }}>
+                        ⏱ Term: {policy.policy_term || calculateInsuranceTerm(policy.start_date, policy.maturity_date)}
+                      </span>
+                    )}
+                    {policy.start_date && (
+                      <span>Commenced: <strong style={{ color: '#e2e8f0' }}>{formatDate(policy.start_date, settings)}</strong></span>
+                    )}
+                    {policy.maturity_date && (
+                      <span>• Maturity: <strong style={{ color: '#e2e8f0' }}>{formatDate(policy.maturity_date, settings)}</strong></span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' }}>
                     <div>
                       <span style={{ color: '#64748b', display: 'block' }}>Sum Assured (Cover)</span>
                       <strong style={{ color: '#10b981', fontSize: '15px' }}>
@@ -6010,6 +6154,35 @@ function InsurancePortfolio({ settings, categories }) {
                       </strong>
                     </div>
                   </div>
+
+                  {(policy.maturity_payout_option || policy.maturity_amount > 0 || policy.vested_bonus > 0 || policy.loyalty_addition > 0) && (
+                    <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: (policy.vested_bonus > 0 || policy.loyalty_addition > 0) ? '6px' : 0 }}>
+                        <span style={{ color: '#38bdf8', fontWeight: 600 }}>🎯 {policy.maturity_payout_option || 'Payment on Maturity'}</span>
+                        {policy.maturity_amount > 0 && (
+                          <span style={{ color: '#94a3b8' }}>
+                            Est. Payout: <strong style={{ color: '#10b981', fontSize: '13px' }}>{money(policy.maturity_amount, settings)}</strong>
+                          </span>
+                        )}
+                      </div>
+                      {(policy.vested_bonus > 0 || policy.loyalty_addition > 0) && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', color: '#94a3b8', paddingTop: '4px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
+                          {policy.vested_bonus > 0 && (
+                            <span>Vested Bonus: <strong style={{ color: '#f59e0b' }}>{money(policy.vested_bonus, settings)}</strong></span>
+                          )}
+                          {policy.loyalty_addition > 0 && (
+                            <span>Loyalty Addition: <strong style={{ color: '#a855f7' }}>{money(policy.loyalty_addition, settings)}</strong></span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {policy.cash_value > 0 && policy.nominee && (
+                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
+                      Nominee: <strong style={{ color: '#cbd5e1' }}>{policy.nominee}</strong>
+                    </div>
+                  )}
 
                   {policy.account_name && (
                     <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '14px' }}>
