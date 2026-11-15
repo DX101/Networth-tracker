@@ -5,9 +5,10 @@ const { google } = require('googleapis');
 const { Dropbox } = require('dropbox');
 const { getDb, DB_PATH } = require('../db');
 
-function getGoogleOAuthClient() {
+function getGoogleOAuthClient(userId = 1) {
   const db = getDb();
-  const settings = db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings WHERE id = 1').get();
+  const settings = db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings WHERE user_id = ?').get(userId)
+    || db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings LIMIT 1').get() || {};
   
   if (!settings.gdrive_client_id || !settings.gdrive_client_secret) {
     throw new Error('Google Drive Client ID and Secret are not configured in settings.');

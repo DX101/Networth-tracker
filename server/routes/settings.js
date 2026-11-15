@@ -14,23 +14,34 @@ const FALLBACK_RATES = {
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    let settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+    const userId = req.user?.id || 1;
+    let settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+    
+    if (!settings) {
+      db.prepare(`
+        INSERT INTO settings (user_id, currency, currency_symbol, date_format, app_name)
+        VALUES (?, 'INR', '₹', 'DD/MM/YYYY', 'Net Worth Tracker')
+      `).run(userId);
+      settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+    }
     
     // Auto-populate exchange rates if null or empty
     if (!settings.exchange_rates || settings.exchange_rates === '{}') {
       const base = settings.currency || 'INR';
       const initialRates = FALLBACK_RATES[base] || { USD: 93.95 };
       const ratesJson = JSON.stringify(initialRates, null, 2);
-      db.prepare('UPDATE settings SET exchange_rates = ? WHERE id = 1').run(ratesJson);
+      db.prepare('UPDATE settings SET exchange_rates = ? WHERE user_id = ?').run(ratesJson, userId);
       settings.exchange_rates = ratesJson;
     }
     
-    // Fetch categories and format them
-    const catRows = db.prepare('SELECT * FROM categories ORDER BY type, name').all();
+    // Fetch categories: default system categories (user_id IS NULL) + user's custom categories
+    const catRows = db.prepare('SELECT * FROM categories WHERE user_id = ? OR user_id IS NULL ORDER BY type, name').all(userId);
     const categories = {};
     for (const c of catRows) {
       if (!categories[c.type]) categories[c.type] = [];
-      categories[c.type].push(c.name);
+      if (!categories[c.type].includes(c.name)) {
+        categories[c.type].push(c.name);
+      }
     }
 
     // Ensure all standard category types exist and include defaults
@@ -57,6 +68,7 @@ router.get('/', async (req, res) => {
 // GET live rates from Yahoo Finance
 router.get('/live-rates', async (req, res) => {
   const { base, symbols } = req.query;
+  const userId = req.user?.id || 1;
   if (!base || !symbols) {
     return res.status(400).json({ error: 'Missing base or symbols query parameters' });
   }
@@ -83,20 +95,19 @@ router.get('/live-rates', async (req, res) => {
       console.warn(`Yahoo rate fetch failed for ${sym}${base}=X:`, e.message);
     }
     
-    // Smart fallback if Yahoo is unreachable or rate limited
     if (FALLBACK_RATES[base] && FALLBACK_RATES[base][sym]) {
       rates[sym] = FALLBACK_RATES[base][sym];
     }
   }
 
-  // Auto-persist fresh rates to settings in background
+  // Auto-persist fresh rates to settings for this user
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT exchange_rates FROM settings WHERE id = 1').get();
+    const existing = db.prepare('SELECT exchange_rates FROM settings WHERE user_id = ?').get(userId);
     let current = {};
     try { current = JSON.parse(existing?.exchange_rates || '{}'); } catch(e) {}
     const merged = { ...current, ...rates };
-    db.prepare('UPDATE settings SET exchange_rates = ? WHERE id = 1').run(JSON.stringify(merged, null, 2));
+    db.prepare('UPDATE settings SET exchange_rates = ? WHERE user_id = ?').run(JSON.stringify(merged, null, 2), userId);
   } catch (e) {}
 
   res.json(rates);
@@ -106,12 +117,17 @@ router.get('/live-rates', async (req, res) => {
 router.put('/', (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { currency, currency_symbol, date_format, app_name, dashboard_layout, exchange_rates, categories, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token } = req.body;
     
-    // Update settings
-    const existing = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+    let existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+    if (!existing) {
+      db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(userId);
+      existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) || {};
+    }
+
     const stmt = db.prepare(
-      'UPDATE settings SET currency=?, currency_symbol=?, date_format=?, app_name=?, dashboard_layout=?, exchange_rates=?, gdrive_client_id=?, gdrive_client_secret=?, gdrive_refresh_token=?, dropbox_client_id=?, dropbox_client_secret=?, dropbox_refresh_token=? WHERE id=1'
+      'UPDATE settings SET currency=?, currency_symbol=?, date_format=?, app_name=?, dashboard_layout=?, exchange_rates=?, gdrive_client_id=?, gdrive_client_secret=?, gdrive_refresh_token=?, dropbox_client_id=?, dropbox_client_secret=?, dropbox_refresh_token=? WHERE user_id=?'
     );
     stmt.run(
       currency ?? existing.currency,
@@ -125,29 +141,36 @@ router.put('/', (req, res) => {
       gdrive_refresh_token !== undefined ? gdrive_refresh_token : existing.gdrive_refresh_token,
       dropbox_client_id !== undefined ? dropbox_client_id : existing.dropbox_client_id,
       dropbox_client_secret !== undefined ? dropbox_client_secret : existing.dropbox_client_secret,
-      dropbox_refresh_token !== undefined ? dropbox_refresh_token : existing.dropbox_refresh_token
+      dropbox_refresh_token !== undefined ? dropbox_refresh_token : existing.dropbox_refresh_token,
+      userId
     );
 
-    // If categories object is provided, completely overwrite the categories table
+    // If categories object is provided, update user-specific categories
     if (categories && typeof categories === 'object') {
-      db.prepare('DELETE FROM categories').run();
-      const insertCat = db.prepare('INSERT INTO categories (name, type) VALUES (?, ?)');
+      db.prepare('DELETE FROM categories WHERE user_id = ?').run(userId);
+      const insertCat = db.prepare('INSERT INTO categories (name, type, user_id) VALUES (?, ?, ?)');
       for (const [type, names] of Object.entries(categories)) {
         if (Array.isArray(names)) {
           for (const name of names) {
-            insertCat.run(name, type);
+            // Only add if not already a default system category
+            const isSystemCat = db.prepare('SELECT id FROM categories WHERE name = ? AND type = ? AND user_id IS NULL').get(name, type);
+            if (!isSystemCat) {
+              insertCat.run(name, type, userId);
+            }
           }
         }
       }
     }
 
     // Return the updated state
-    const updatedSettings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-    const catRows = db.prepare('SELECT * FROM categories ORDER BY type, name').all();
+    const updatedSettings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+    const catRows = db.prepare('SELECT * FROM categories WHERE user_id = ? OR user_id IS NULL ORDER BY type, name').all(userId);
     const updatedCategories = {};
     for (const c of catRows) {
       if (!updatedCategories[c.type]) updatedCategories[c.type] = [];
-      updatedCategories[c.type].push(c.name);
+      if (!updatedCategories[c.type].includes(c.name)) {
+        updatedCategories[c.type].push(c.name);
+      }
     }
     
     res.json({ settings: updatedSettings, categories: updatedCategories });

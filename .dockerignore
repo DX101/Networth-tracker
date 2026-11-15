@@ -1,0 +1,13 @@
+node_modules
+client/node_modules
+server/node_modules
+client/dist
+release-latest
+release-cards
+.git
+.github
+*.exe
+*.apk
+*.log
+scratch
+networth_test_copy.db

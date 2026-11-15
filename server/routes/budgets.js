@@ -22,24 +22,25 @@ function decorateBudget(db, budget) {
   };
 }
 
-function getBudgetByInsertResult(db, result, payload) {
+function getBudgetByInsertResult(db, result, payload, userId) {
   const byId = result?.lastInsertRowid
-    ? db.prepare('SELECT * FROM budgets WHERE id = ?').get(result.lastInsertRowid)
+    ? db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(result.lastInsertRowid, userId)
     : null;
   if (byId) return byId;
 
   return db.prepare(
-    'SELECT * FROM budgets WHERE category = ? AND month IS ? AND year IS ? ORDER BY id DESC LIMIT 1'
-  ).get(payload.category, payload.month || null, payload.year || null);
+    'SELECT * FROM budgets WHERE category = ? AND month IS ? AND year IS ? AND user_id = ? ORDER BY id DESC LIMIT 1'
+  ).get(payload.category, payload.month || null, payload.year || null, userId);
 }
 
 // GET all budgets, optionally filtered by month/year/date overlap
 router.get('/', (req, res) => {
   try {
     const db = getBudgetDb();
+    const userId = req.user?.id || 1;
     const { month, year, from, to } = req.query;
-    let query = 'SELECT * FROM budgets WHERE 1=1';
-    const params = [];
+    let query = 'SELECT * FROM budgets WHERE user_id = ?';
+    const params = [userId];
 
     if (month) { query += ' AND month = ?'; params.push(Number(month)); }
     if (year)  { query += ' AND year = ?';  params.push(Number(year)); }
@@ -58,7 +59,8 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getBudgetDb();
-    const item = db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!item) return res.status(404).json({ error: 'Budget not found' });
     res.json(decorateBudget(db, item));
   } catch (err) {
@@ -70,6 +72,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getBudgetDb();
+    const userId = req.user?.id || 1;
     const { category, monthly_limit, month, year, start_date, end_date, notes } = req.body;
     if (!category || !String(category).trim()) return res.status(400).json({ error: 'Budget category is required' });
     const payload = {
@@ -82,10 +85,10 @@ router.post('/', (req, res) => {
       notes: notes || ''
     };
     const stmt = db.prepare(
-      'INSERT INTO budgets (category, monthly_limit, month, year, start_date, end_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO budgets (category, monthly_limit, month, year, start_date, end_date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(payload.category, payload.monthly_limit, payload.month, payload.year, payload.start_date, payload.end_date, payload.notes);
-    const item = getBudgetByInsertResult(db, result, payload);
+    const result = stmt.run(payload.category, payload.monthly_limit, payload.month, payload.year, payload.start_date, payload.end_date, payload.notes, userId);
+    const item = getBudgetByInsertResult(db, result, payload, userId);
     if (!item) return res.status(500).json({ error: 'Budget was saved, but could not be reloaded' });
     res.status(201).json(decorateBudget(db, item));
   } catch (err) {
@@ -97,12 +100,13 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getBudgetDb();
+    const userId = req.user?.id || 1;
     const { category, monthly_limit, month, year, start_date, end_date, notes } = req.body;
-    const existing = db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id);
+    const existing = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Budget not found' });
 
     const stmt = db.prepare(
-      "UPDATE budgets SET category=?, monthly_limit=?, month=?, year=?, start_date=?, end_date=?, notes=?, updated_at=datetime('now') WHERE id=?"
+      "UPDATE budgets SET category=?, monthly_limit=?, month=?, year=?, start_date=?, end_date=?, notes=?, updated_at=datetime('now') WHERE id=? AND user_id=?"
     );
     stmt.run(
       category ?? existing.category,
@@ -112,9 +116,10 @@ router.put('/:id', (req, res) => {
       start_date ?? existing.start_date,
       end_date ?? existing.end_date,
       notes ?? existing.notes,
-      req.params.id
+      req.params.id,
+      userId
     );
-    const item = db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id);
+    const item = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!item) return res.status(500).json({ error: 'Budget was updated, but could not be reloaded' });
     res.json(decorateBudget(db, item));
   } catch (err) {
@@ -126,10 +131,11 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getBudgetDb();
-    const existing = db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Budget not found' });
     db.prepare('DELETE FROM budget_expenses WHERE budget_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM budgets WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM budgets WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     res.json({ message: 'Budget deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -140,10 +146,11 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/expenses', (req, res) => {
   try {
     const db = getBudgetDb();
-    const budget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const budget = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!budget) return res.status(404).json({ error: 'Budget not found' });
     const { title, amount, date, notes } = req.body;
-    const result = db.prepare('INSERT INTO budget_expenses (budget_id, title, amount, date, notes) VALUES (?, ?, ?, ?, ?)').run(req.params.id, title, amount || 0, date || new Date().toISOString().split('T')[0], notes || '');
+    const result = db.prepare('INSERT INTO budget_expenses (budget_id, title, amount, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)').run(req.params.id, title, amount || 0, date || new Date().toISOString().split('T')[0], notes || '', userId);
     const item = db.prepare('SELECT * FROM budget_expenses WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(item);
   } catch (err) {
@@ -155,6 +162,9 @@ router.post('/:id/expenses', (req, res) => {
 router.delete('/:id/expenses/:expenseId', (req, res) => {
   try {
     const db = getBudgetDb();
+    const userId = req.user?.id || 1;
+    const budget = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!budget) return res.status(404).json({ error: 'Budget not found' });
     const existing = db.prepare('SELECT * FROM budget_expenses WHERE id = ? AND budget_id = ?').get(req.params.expenseId, req.params.id);
     if (!existing) return res.status(404).json({ error: 'Budget expense not found' });
     db.prepare('DELETE FROM budget_expenses WHERE id = ?').run(req.params.expenseId);
@@ -168,6 +178,7 @@ router.delete('/:id/expenses/:expenseId', (req, res) => {
 router.get('/summary/:year/:month', (req, res) => {
   try {
     const db = getBudgetDb();
+    const userId = req.user?.id || 1;
     const { year, month } = req.params;
     const m = String(month).padStart(2, '0');
     const y = String(year);
@@ -175,8 +186,8 @@ router.get('/summary/:year/:month', (req, res) => {
     const monthStart = `${y}-${m}-01`;
     const monthEnd = `${y}-${m}-31`;
     const budgets = db.prepare(
-      'SELECT * FROM budgets WHERE (start_date IS NULL OR start_date <= ?) AND (end_date IS NULL OR end_date >= ?) ORDER BY created_at DESC'
-    ).all(monthEnd, monthStart).map((budget) => decorateBudget(db, budget));
+      'SELECT * FROM budgets WHERE (start_date IS NULL OR start_date <= ?) AND (end_date IS NULL OR end_date >= ?) AND user_id = ? ORDER BY created_at DESC'
+    ).all(monthEnd, monthStart, userId).map((budget) => decorateBudget(db, budget));
 
     const totalBudget = budgets.reduce((s, b) => s + Number(b.monthly_limit || 0), 0);
     const totalSpent = budgets.reduce((s, b) => s + Number(b.spent || 0), 0);

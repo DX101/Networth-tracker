@@ -36,7 +36,8 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     ensureInvestmentColumns(db);
-    const items = db.prepare('SELECT * FROM investments ORDER BY buy_date DESC').all();
+    const userId = req.user?.id || 1;
+    const items = db.prepare('SELECT * FROM investments WHERE user_id = ? ORDER BY buy_date DESC').all(userId);
     // Calculate computed fields
     const enriched = items.map(item => ({
       ...item,
@@ -56,7 +57,8 @@ router.get('/:id', (req, res) => {
   try {
     const db = getDb();
     ensureInvestmentColumns(db);
-    const item = db.prepare('SELECT * FROM investments WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!item) return res.status(404).json({ error: 'Investment not found' });
     res.json({
       ...item,
@@ -75,6 +77,7 @@ router.post('/', async (req, res) => {
   try {
     const db = getDb();
     ensureInvestmentColumns(db);
+    const userId = req.user?.id || 1;
     const {
       asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
       is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
@@ -95,17 +98,18 @@ router.post('/', async (req, res) => {
       INSERT INTO investments (
         asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
         is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
-        tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       asset_name, category, buy_price || 0, finalCurPrice, finalQty,
       buy_date || new Date().toISOString().split('T')[0], platform || '', notes || '',
       is_sip ? 1 : 0, sip_monthly || 0, interest_rate || 0, maturity_date || null, currency || null, finalTicker,
-      tenure || '', finalPayout, receiving_account_id ? Number(receiving_account_id) : null, receiving_account_name || '', last_interest_date || null
+      tenure || '', finalPayout, receiving_account_id ? Number(receiving_account_id) : null, receiving_account_name || '', last_interest_date || null,
+      userId
     );
-    await takeSnapshot();
-    const item = db.prepare('SELECT * FROM investments WHERE id = ?').get(result.lastInsertRowid);
+    await takeSnapshot(userId);
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(result.lastInsertRowid, userId);
     res.status(201).json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -117,13 +121,14 @@ router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureInvestmentColumns(db);
+    const userId = req.user?.id || 1;
     const {
       asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
       is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
       tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date
     } = req.body;
 
-    const existing = db.prepare('SELECT * FROM investments WHERE id = ?').get(req.params.id);
+    const existing = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Not found' });
 
     const isFd = isFdorRd(category ?? existing.category);
@@ -136,7 +141,7 @@ router.put('/:id', async (req, res) => {
         asset_name = ?, category = ?, buy_price = ?, current_price = ?, 
         quantity = ?, buy_date = ?, platform = ?, notes = ?, is_sip = ?, sip_monthly = ?, interest_rate = ?, maturity_date = ?, currency = ?, ticker = ?,
         tenure = ?, payout_frequency = ?, receiving_account_id = ?, receiving_account_name = ?, last_interest_date = ?, updated_at = datetime('now')
-       WHERE id = ?
+       WHERE id = ? AND user_id = ?
     `);
     stmt.run(
       asset_name ?? existing.asset_name,
@@ -158,21 +163,22 @@ router.put('/:id', async (req, res) => {
       receiving_account_id !== undefined ? (receiving_account_id ? Number(receiving_account_id) : null) : existing.receiving_account_id,
       receiving_account_name ?? existing.receiving_account_name ?? '',
       last_interest_date ?? existing.last_interest_date ?? null,
-      req.params.id
+      req.params.id,
+      userId
     );
 
-    // Sync current_price and ticker to all lots of the same asset_name!
+    // Sync current_price and ticker to all lots of the same asset_name for this user!
     if (current_price !== undefined && current_price !== existing.current_price) {
-       const syncStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE asset_name=?");
-       syncStmt.run(current_price, asset_name ?? existing.asset_name);
+       const syncStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE asset_name=? AND user_id=?");
+       syncStmt.run(current_price, asset_name ?? existing.asset_name, userId);
     }
     if (ticker !== undefined && ticker !== existing.ticker && !isFd) {
-       const syncStmt = db.prepare("UPDATE investments SET ticker=?, updated_at=datetime('now') WHERE asset_name=?");
-       syncStmt.run(ticker, asset_name ?? existing.asset_name);
+       const syncStmt = db.prepare("UPDATE investments SET ticker=?, updated_at=datetime('now') WHERE asset_name=? AND user_id=?");
+       syncStmt.run(ticker, asset_name ?? existing.asset_name, userId);
     }
 
-    await takeSnapshot();
-    const item = db.prepare('SELECT * FROM investments WHERE id = ?').get(req.params.id);
+    await takeSnapshot(userId);
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -184,7 +190,8 @@ router.post('/:id/record-interest', async (req, res) => {
   try {
     const db = getDb();
     ensureInvestmentColumns(db);
-    const item = db.prepare('SELECT * FROM investments WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!item) return res.status(404).json({ error: 'Investment not found' });
 
     let { amount, date, account_id, description, adjust_balance } = req.body;
@@ -218,7 +225,7 @@ router.post('/:id/record-interest', async (req, res) => {
 
     let accountName = '';
     if (targetAccountId) {
-      const acc = db.prepare('SELECT name FROM assets WHERE id = ?').get(targetAccountId);
+      const acc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(targetAccountId, userId);
       if (acc) accountName = acc.name;
     }
 
@@ -227,17 +234,17 @@ router.post('/:id/record-interest', async (req, res) => {
     const txResult = db.transaction(() => {
       // 1. Credit target account if requested and target exists
       if (targetAccountId && shouldAdjust) {
-        db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ?")
-          .run(amt, targetAccountId);
+        db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(amt, targetAccountId, userId);
       }
 
       // 2. Insert into cashflow
       const cfStmt = db.prepare(`
         INSERT INTO cashflow (
-          type, amount, category, date, description, is_recurring, frequency, account_id, adjust_balance
-        ) VALUES ('income', ?, 'Interest Income', ?, ?, 0, NULL, ?, ?)
+          type, amount, category, date, description, is_recurring, frequency, account_id, adjust_balance, user_id
+        ) VALUES ('income', ?, 'Interest Income', ?, ?, 0, NULL, ?, ?, ?)
       `);
-      const cfResult = cfStmt.run(amt, txDate, txDesc, targetAccountId || null, shouldAdjust ? 1 : 0);
+      const cfResult = cfStmt.run(amt, txDate, txDesc, targetAccountId || null, shouldAdjust ? 1 : 0, userId);
 
       // 3. Update investment last_interest_date and receiving_account
       db.prepare(`
@@ -246,13 +253,13 @@ router.post('/:id/record-interest', async (req, res) => {
           receiving_account_id = COALESCE(?, receiving_account_id),
           receiving_account_name = CASE WHEN ? != '' THEN ? ELSE receiving_account_name END,
           updated_at = datetime('now') 
-        WHERE id = ?
-      `).run(txDate, targetAccountId || null, accountName, accountName, item.id);
+        WHERE id = ? AND user_id = ?
+      `).run(txDate, targetAccountId || null, accountName, accountName, item.id, userId);
 
       return { cashflow_id: cfResult.lastInsertRowid };
     })();
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     res.json({
       success: true,
@@ -273,16 +280,17 @@ router.post('/:id/record-interest', async (req, res) => {
 router.post('/sync-prices', async (req, res) => {
   try {
     const db = getDb();
-    const rows = db.prepare('SELECT DISTINCT ticker, asset_name, currency FROM investments WHERE ticker IS NOT NULL AND ticker != ""').all();
+    const userId = req.user?.id || 1;
+    const rows = db.prepare('SELECT DISTINCT ticker, asset_name, currency FROM investments WHERE ticker IS NOT NULL AND ticker != "" AND user_id = ?').all(userId);
     if (rows.length === 0) return res.json({ message: 'No tickers to sync', updated: 0 });
 
-    const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
+    const settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) || {};
     let rates = {};
     try { rates = JSON.parse(settings.exchange_rates || '{}'); } catch(e) {}
     const usdRate = Number(rates.USD) || 94.0;
 
     let updatedCount = 0;
-    const updateStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE ticker=? AND (currency=? OR (currency IS NULL AND ?='INR'))");
+    const updateStmt = db.prepare("UPDATE investments SET current_price=?, updated_at=datetime('now') WHERE ticker=? AND user_id=? AND (currency=? OR (currency IS NULL AND ?='INR'))");
     
     // Group by ticker to avoid redundant Yahoo Finance requests
     const tickersMap = {};
@@ -304,13 +312,12 @@ router.post('/sync-prices', async (req, res) => {
             for (const item of items) {
               const itemCur = item.currency || 'INR';
               let finalPrice = rawPrice;
-              // If quote is USD and item is tracked in INR:
               if (itemCur === 'INR' && quoteCurrency === 'USD') {
                 finalPrice = Number((rawPrice * usdRate).toFixed(2));
               } else if (itemCur === 'USD' && quoteCurrency === 'INR') {
                 finalPrice = Number((rawPrice / usdRate).toFixed(4));
               }
-              updateStmt.run(finalPrice, ticker, item.currency, item.currency);
+              updateStmt.run(finalPrice, ticker, userId, item.currency, item.currency);
               updatedCount++;
             }
           }
@@ -321,7 +328,7 @@ router.post('/sync-prices', async (req, res) => {
     }
     
     if (updatedCount > 0) {
-      await takeSnapshot();
+      await takeSnapshot(userId);
     }
     
     res.json({ message: 'Sync complete', updated: updatedCount });
@@ -334,10 +341,11 @@ router.post('/sync-prices', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM investments WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Investment not found' });
-    db.prepare('DELETE FROM investments WHERE id = ?').run(req.params.id);
-    await takeSnapshot();
+    db.prepare('DELETE FROM investments WHERE id = ? AND user_id = ?').run(req.params.id, userId);
+    await takeSnapshot(userId);
     res.json({ message: 'Investment deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });

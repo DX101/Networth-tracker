@@ -29,6 +29,15 @@ router.post('/register', (req, res) => {
 
     // Get the new user
     const user = db.prepare('SELECT id, username, created_at FROM users WHERE username = ?').get(username);
+
+    // Initialize default settings for the new user
+    try {
+      db.prepare(`
+        INSERT INTO settings (user_id, currency, currency_symbol, date_format, app_name)
+        VALUES (?, 'INR', '₹', 'DD/MM/YYYY', 'Net Worth Tracker')
+      `).run(user.id);
+    } catch (e) {}
+
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({ token, user });

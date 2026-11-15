@@ -7,7 +7,8 @@ const { takeSnapshot } = require('./snapshots');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const items = db.prepare('SELECT * FROM liabilities ORDER BY date_added DESC').all();
+    const userId = req.user?.id || 1;
+    const items = db.prepare('SELECT * FROM liabilities WHERE user_id = ? ORDER BY date_added DESC').all(userId);
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -18,7 +19,8 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const item = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!item) return res.status(404).json({ error: 'Liability not found' });
     res.json(item);
   } catch (err) {
@@ -30,11 +32,12 @@ router.get('/:id', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { name, category, current_value, currency, interest_rate, minimum_payment, total_emis, remaining_emis, maturity_date, emi_day, date_added, notes } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Liability name is required' });
     if (!category || !String(category).trim()) return res.status(400).json({ error: 'Liability category is required' });
     const stmt = db.prepare(
-      'INSERT INTO liabilities (name, category, current_value, currency, interest_rate, minimum_payment, total_emis, remaining_emis, maturity_date, emi_day, date_added, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO liabilities (name, category, current_value, currency, interest_rate, minimum_payment, total_emis, remaining_emis, maturity_date, emi_day, date_added, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const result = stmt.run(
       name,
@@ -48,10 +51,11 @@ router.post('/', async (req, res) => {
       maturity_date || null,
       emi_day !== undefined && emi_day !== '' && emi_day !== null ? Number(emi_day) : null,
       date_added || new Date().toISOString().split('T')[0],
-      notes || ''
+      notes || '',
+      userId
     );
-    await takeSnapshot();
-    const item = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(result.lastInsertRowid);
+    await takeSnapshot(userId);
+    const item = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(result.lastInsertRowid, userId);
     res.status(201).json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,13 +66,14 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { name, category, current_value, currency, interest_rate, minimum_payment, total_emis, remaining_emis, maturity_date, emi_day, date_added, notes } = req.body;
     if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Liability name cannot be empty' });
     if (category !== undefined && !String(category).trim()) return res.status(400).json({ error: 'Liability category cannot be empty' });
-    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Liability not found' });
     const stmt = db.prepare(
-      "UPDATE liabilities SET name=?, category=?, current_value=?, currency=?, interest_rate=?, minimum_payment=?, total_emis=?, remaining_emis=?, maturity_date=?, emi_day=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=?"
+      "UPDATE liabilities SET name=?, category=?, current_value=?, currency=?, interest_rate=?, minimum_payment=?, total_emis=?, remaining_emis=?, maturity_date=?, emi_day=?, date_added=?, notes=?, updated_at=datetime('now') WHERE id=? AND user_id=?"
     );
     stmt.run(
       name ?? existing.name,
@@ -83,10 +88,11 @@ router.put('/:id', async (req, res) => {
       emi_day !== undefined ? (emi_day !== '' && emi_day !== null ? Number(emi_day) : null) : existing.emi_day,
       date_added ?? existing.date_added,
       notes ?? existing.notes,
-      req.params.id
+      req.params.id,
+      userId
     );
-    await takeSnapshot();
-    const item = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    await takeSnapshot(userId);
+    const item = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -97,7 +103,8 @@ router.put('/:id', async (req, res) => {
 router.post('/:id/pay-emi', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Liability not found' });
 
     const { amount, date, syncCashflow } = req.body;
@@ -119,19 +126,19 @@ router.post('/:id/pay-emi', async (req, res) => {
 
     // Update liability
     db.prepare(
-      "UPDATE liabilities SET current_value=?, remaining_emis=?, updated_at=datetime('now') WHERE id=?"
-    ).run(newBalance, newRemaining, req.params.id);
+      "UPDATE liabilities SET current_value=?, remaining_emis=?, updated_at=datetime('now') WHERE id=? AND user_id=?"
+    ).run(newBalance, newRemaining, req.params.id, userId);
 
     // Optionally record in cashflow
     if (syncCashflow !== false) {
       db.prepare(
-        'INSERT INTO cashflow (type, category, description, amount, date) VALUES (?, ?, ?, ?, ?)'
-      ).run('expense', 'EMI/Loan Payments', `EMI Payment - ${existing.name}`, payment, paymentDate);
+        'INSERT INTO cashflow (type, category, description, amount, date, user_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('expense', 'EMI/Loan Payments', `EMI Payment - ${existing.name}`, payment, paymentDate, userId);
     }
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
-    const updated = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const updated = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json({
       success: true,
       liability: updated,
@@ -152,7 +159,8 @@ router.post('/:id/pay-emi', async (req, res) => {
 router.post('/:id/foreclose', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Liability not found' });
 
     const { amount, charges, date, syncCashflow, notes } = req.body;
@@ -165,19 +173,19 @@ router.post('/:id/foreclose', async (req, res) => {
     // Close the liability
     const closeNote = (existing.notes ? existing.notes + ' | ' : '') + `Foreclosed on ${payoffDate} for ₹${payoffAmount}` + (extraCharges > 0 ? ` (Charges: ₹${extraCharges})` : '');
     db.prepare(
-      "UPDATE liabilities SET current_value=0, remaining_emis=0, notes=?, updated_at=datetime('now') WHERE id=?"
-    ).run(closeNote, req.params.id);
+      "UPDATE liabilities SET current_value=0, remaining_emis=0, notes=?, updated_at=datetime('now') WHERE id=? AND user_id=?"
+    ).run(closeNote, req.params.id, userId);
 
     // Optionally record in cashflow
     if (syncCashflow !== false && totalPaid > 0) {
       db.prepare(
-        'INSERT INTO cashflow (type, category, description, amount, date) VALUES (?, ?, ?, ?, ?)'
-      ).run('expense', 'EMI/Loan Payments', `Loan Foreclosure / Settlement - ${existing.name}`, totalPaid, payoffDate);
+        'INSERT INTO cashflow (type, category, description, amount, date, user_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('expense', 'EMI/Loan Payments', `Loan Foreclosure / Settlement - ${existing.name}`, totalPaid, payoffDate, userId);
     }
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
-    const updated = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const updated = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json({ success: true, liability: updated, totalPaid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -188,10 +196,11 @@ router.post('/:id/foreclose', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM liabilities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Liability not found' });
-    db.prepare('DELETE FROM liabilities WHERE id = ?').run(req.params.id);
-    await takeSnapshot();
+    db.prepare('DELETE FROM liabilities WHERE id = ? AND user_id = ?').run(req.params.id, userId);
+    await takeSnapshot(userId);
     res.json({ message: 'Liability deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });

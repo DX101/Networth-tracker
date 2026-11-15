@@ -308,6 +308,78 @@ function initSchema(db) {
   }
   ensureCategoriesColumns(db);
   ensureInsuranceTable(db);
+  ensureMultiUserSchema(db);
+}
+
+function ensureMultiUserSchema(db) {
+  // Determine default user ID for migrating legacy data
+  let defaultUserId = 1;
+  try {
+    const primaryUser = db.prepare("SELECT id FROM users WHERE username = 'DX101'").get()
+      || db.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 1").get();
+    if (primaryUser && primaryUser.id) defaultUserId = primaryUser.id;
+  } catch (e) {}
+
+  // 1. Migrate settings table to remove CHECK(id = 1) if present
+  try {
+    const settingsSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='settings'").get();
+    const settingsSql = settingsSqlRow?.sql || '';
+    if (settingsSql.includes('CHECK(id = 1)') || settingsSql.includes('CHECK (id = 1)')) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS settings_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER UNIQUE,
+          currency TEXT DEFAULT 'INR',
+          currency_symbol TEXT DEFAULT '₹',
+          date_format TEXT DEFAULT 'DD/MM/YYYY',
+          app_name TEXT DEFAULT 'Net Worth Tracker',
+          theme TEXT DEFAULT 'dark',
+          dashboard_layout TEXT DEFAULT NULL,
+          exchange_rates TEXT DEFAULT NULL,
+          gdrive_client_id TEXT DEFAULT NULL,
+          gdrive_client_secret TEXT DEFAULT NULL,
+          gdrive_refresh_token TEXT DEFAULT NULL,
+          dropbox_client_id TEXT DEFAULT NULL,
+          dropbox_client_secret TEXT DEFAULT NULL,
+          dropbox_refresh_token TEXT DEFAULT NULL
+        );
+        INSERT INTO settings_new (id, user_id, currency, currency_symbol, date_format, app_name, theme, dashboard_layout, exchange_rates, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token)
+          SELECT 1, ${defaultUserId}, currency, currency_symbol, date_format, app_name, theme, dashboard_layout, exchange_rates, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings;
+        DROP TABLE settings;
+        ALTER TABLE settings_new RENAME TO settings;
+      `);
+    }
+  } catch (err) {
+    console.warn('Settings table migration note:', err.message);
+  }
+
+  // 2. Ensure user_id column on all tables and backfill legacy rows
+  const tables = [
+    'assets', 'liabilities', 'cashflow', 'investments', 'snapshots',
+    'budgets', 'budget_expenses', 'goals', 'goal_contributions',
+    'subscriptions', 'insurance', 'categories', 'settings'
+  ];
+
+  for (const table of tables) {
+    try {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+      if (!columns.includes('user_id')) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN user_id INTEGER DEFAULT NULL`);
+        if (table !== 'categories') {
+          db.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id IS NULL`).run(defaultUserId);
+        }
+      }
+    } catch (e) {
+      console.warn(`Could not add user_id to ${table}:`, e.message);
+    }
+  }
+
+  // Ensure default index on user_id for high-speed queries
+  for (const table of ['assets', 'liabilities', 'cashflow', 'investments', 'snapshots', 'budgets', 'goals', 'insurance', 'subscriptions']) {
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_user_id ON ${table}(user_id);`);
+    } catch (e) {}
+  }
 }
 
 function ensureBudgetColumns(db) {

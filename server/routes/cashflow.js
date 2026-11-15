@@ -3,11 +3,16 @@ const router = express.Router();
 const { getDb, ensureCashflowColumns } = require('../db');
 const { takeSnapshot } = require('./snapshots');
 
-// Helper to safely adjust asset balances
-function adjustAssetBalance(db, assetId, delta) {
+// Helper to safely adjust asset balances for a user
+function adjustAssetBalance(db, assetId, delta, userId) {
   if (!assetId || delta === 0 || isNaN(delta)) return;
-  db.prepare('UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime(\'now\') WHERE id = ?')
-    .run(Number(delta), assetId);
+  if (userId) {
+    db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+      .run(Number(delta), assetId, userId);
+  } else {
+    db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ?")
+      .run(Number(delta), assetId);
+  }
 }
 
 // GET all cashflow entries with account details
@@ -15,6 +20,7 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
     const { type, category, month, year, account_id } = req.query;
 
     let query = `
@@ -24,9 +30,9 @@ router.get('/', (req, res) => {
       FROM cashflow c
       LEFT JOIN assets a1 ON c.account_id = a1.id
       LEFT JOIN assets a2 ON c.to_account_id = a2.id
-      WHERE 1=1
+      WHERE c.user_id = ?
     `;
-    const params = [];
+    const params = [userId];
 
     if (type) { query += ' AND c.type = ?'; params.push(type); }
     if (category) { query += ' AND c.category = ?'; params.push(category); }
@@ -50,6 +56,7 @@ router.get('/:id', (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
     const item = db.prepare(`
       SELECT c.*, 
              a1.name AS account_name, 
@@ -57,8 +64,8 @@ router.get('/:id', (req, res) => {
       FROM cashflow c
       LEFT JOIN assets a1 ON c.account_id = a1.id
       LEFT JOIN assets a2 ON c.to_account_id = a2.id
-      WHERE c.id = ?
-    `).get(req.params.id);
+      WHERE c.id = ? AND c.user_id = ?
+    `).get(req.params.id, userId);
 
     if (!item) return res.status(404).json({ error: 'Cashflow entry not found' });
     res.json(item);
@@ -72,9 +79,10 @@ router.get('/account/:id/statement', (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
     const assetId = req.params.id;
 
-    const account = db.prepare('SELECT * FROM assets WHERE id = ?').get(assetId);
+    const account = db.prepare('SELECT * FROM assets WHERE id = ? AND user_id = ?').get(assetId, userId);
     if (!account) return res.status(404).json({ error: 'Account/Asset not found' });
 
     const rawRows = db.prepare(`
@@ -84,9 +92,9 @@ router.get('/account/:id/statement', (req, res) => {
       FROM cashflow c
       LEFT JOIN assets a1 ON c.account_id = a1.id
       LEFT JOIN assets a2 ON c.to_account_id = a2.id
-      WHERE c.account_id = ? OR c.to_account_id = ?
+      WHERE (c.account_id = ? OR c.to_account_id = ?) AND c.user_id = ?
       ORDER BY c.date ASC, c.id ASC
-    `).all(assetId, assetId);
+    `).all(assetId, assetId, userId);
 
     let totalInflow = 0;
     let totalOutflow = 0;
@@ -125,7 +133,7 @@ router.get('/account/:id/statement', (req, res) => {
       total_inflow: totalInflow,
       total_outflow: totalOutflow,
       net_change: totalInflow - totalOutflow,
-      transactions: transactions.reverse() // Return newest first
+      transactions: transactions.reverse()
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -137,6 +145,7 @@ router.post('/', async (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
     const {
       type, amount, category, date, description,
       is_recurring, frequency, account_id, to_account_id, adjust_balance
@@ -167,24 +176,24 @@ router.post('/', async (req, res) => {
     const runInsert = db.transaction(() => {
       if (type === 'transfer') {
         if (shouldAdjust) {
-          adjustAssetBalance(db, account_id, -amt);
-          adjustAssetBalance(db, to_account_id, amt);
+          adjustAssetBalance(db, account_id, -amt, userId);
+          adjustAssetBalance(db, to_account_id, amt, userId);
         }
       } else if (type === 'expense') {
         if (account_id && shouldAdjust) {
-          adjustAssetBalance(db, account_id, -amt);
+          adjustAssetBalance(db, account_id, -amt, userId);
         }
       } else if (type === 'income') {
         if (account_id && shouldAdjust) {
-          adjustAssetBalance(db, account_id, amt);
+          adjustAssetBalance(db, account_id, amt, userId);
         }
       }
 
       const stmt = db.prepare(`
         INSERT INTO cashflow (
           type, amount, category, date, description,
-          is_recurring, frequency, account_id, to_account_id, adjust_balance
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_recurring, frequency, account_id, to_account_id, adjust_balance, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       return stmt.run(
@@ -192,13 +201,14 @@ router.post('/', async (req, res) => {
         description || '', is_recurring ? 1 : 0, frequency || null,
         account_id ? Number(account_id) : null,
         to_account_id ? Number(to_account_id) : null,
-        shouldAdjust ? 1 : 0
+        shouldAdjust ? 1 : 0,
+        userId
       );
     });
 
     const result = runInsert();
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     const item = db.prepare(`
       SELECT c.*, 
@@ -207,8 +217,8 @@ router.post('/', async (req, res) => {
       FROM cashflow c
       LEFT JOIN assets a1 ON c.account_id = a1.id
       LEFT JOIN assets a2 ON c.to_account_id = a2.id
-      WHERE c.id = ?
-    `).get(result.lastInsertRowid);
+      WHERE c.id = ? AND c.user_id = ?
+    `).get(result.lastInsertRowid, userId);
 
     res.status(201).json(item);
   } catch (err) {
@@ -221,13 +231,14 @@ router.post('/bulk', async (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
     const { transactions } = req.body;
     if (!Array.isArray(transactions) || transactions.length === 0) {
       return res.status(400).json({ error: 'transactions must be a non-empty array' });
     }
     const insert = db.prepare(`
-      INSERT INTO cashflow (type, amount, category, date, description, account_id, to_account_id, adjust_balance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO cashflow (type, amount, category, date, description, account_id, to_account_id, adjust_balance, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const tx of transactions) {
@@ -235,11 +246,11 @@ router.post('/bulk', async (req, res) => {
       const amt = Number(tx.amount) || 0;
       insert.run(
         type, amt, tx.category || 'General', tx.date || new Date().toISOString().split('T')[0],
-        tx.description || '', tx.account_id || null, tx.to_account_id || null, 0
+        tx.description || '', tx.account_id || null, tx.to_account_id || null, 0, userId
       );
     }
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
     res.json({ success: true, count: transactions.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -251,7 +262,8 @@ router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
-    const existing = db.prepare('SELECT * FROM cashflow WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM cashflow WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Cashflow entry not found' });
 
     const {
@@ -271,24 +283,24 @@ router.put('/:id', async (req, res) => {
       if (existing.adjust_balance) {
         const oldAmt = Number(existing.amount) || 0;
         if (existing.type === 'expense' && existing.account_id) {
-          adjustAssetBalance(db, existing.account_id, oldAmt);
+          adjustAssetBalance(db, existing.account_id, oldAmt, userId);
         } else if (existing.type === 'income' && existing.account_id) {
-          adjustAssetBalance(db, existing.account_id, -oldAmt);
+          adjustAssetBalance(db, existing.account_id, -oldAmt, userId);
         } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
-          adjustAssetBalance(db, existing.account_id, oldAmt);
-          adjustAssetBalance(db, existing.to_account_id, -oldAmt);
+          adjustAssetBalance(db, existing.account_id, oldAmt, userId);
+          adjustAssetBalance(db, existing.to_account_id, -oldAmt, userId);
         }
       }
 
       // 2. Apply new asset adjustment
       if (newAdjustBalance) {
         if (newType === 'expense' && newAccountId) {
-          adjustAssetBalance(db, newAccountId, -newAmount);
+          adjustAssetBalance(db, newAccountId, -newAmount, userId);
         } else if (newType === 'income' && newAccountId) {
-          adjustAssetBalance(db, newAccountId, newAmount);
+          adjustAssetBalance(db, newAccountId, newAmount, userId);
         } else if (newType === 'transfer' && newAccountId && newToAccountId) {
-          adjustAssetBalance(db, newAccountId, -newAmount);
-          adjustAssetBalance(db, newToAccountId, newAmount);
+          adjustAssetBalance(db, newAccountId, -newAmount, userId);
+          adjustAssetBalance(db, newToAccountId, newAmount, userId);
         }
       }
 
@@ -298,7 +310,7 @@ router.put('/:id', async (req, res) => {
           type = ?, amount = ?, category = ?, date = ?, description = ?,
           is_recurring = ?, frequency = ?, account_id = ?, to_account_id = ?,
           adjust_balance = ?, updated_at = datetime('now')
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `);
 
       stmt.run(
@@ -307,13 +319,14 @@ router.put('/:id', async (req, res) => {
         is_recurring !== undefined ? (is_recurring ? 1 : 0) : existing.is_recurring,
         frequency !== undefined ? frequency : existing.frequency,
         newAccountId, newToAccountId, newAdjustBalance,
-        req.params.id
+        req.params.id,
+        userId
       );
     });
 
     runUpdate();
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     const item = db.prepare(`
       SELECT c.*, 
@@ -322,8 +335,8 @@ router.put('/:id', async (req, res) => {
       FROM cashflow c
       LEFT JOIN assets a1 ON c.account_id = a1.id
       LEFT JOIN assets a2 ON c.to_account_id = a2.id
-      WHERE c.id = ?
-    `).get(req.params.id);
+      WHERE c.id = ? AND c.user_id = ?
+    `).get(req.params.id, userId);
 
     res.json(item);
   } catch (err) {
@@ -336,7 +349,8 @@ router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureCashflowColumns(db);
-    const existing = db.prepare('SELECT * FROM cashflow WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM cashflow WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Cashflow entry not found' });
 
     const runDelete = db.transaction(() => {
@@ -344,20 +358,20 @@ router.delete('/:id', async (req, res) => {
       if (existing.adjust_balance) {
         const amt = Number(existing.amount) || 0;
         if (existing.type === 'expense' && existing.account_id) {
-          adjustAssetBalance(db, existing.account_id, amt);
+          adjustAssetBalance(db, existing.account_id, amt, userId);
         } else if (existing.type === 'income' && existing.account_id) {
-          adjustAssetBalance(db, existing.account_id, -amt);
+          adjustAssetBalance(db, existing.account_id, -amt, userId);
         } else if (existing.type === 'transfer' && existing.account_id && existing.to_account_id) {
-          adjustAssetBalance(db, existing.account_id, amt);
-          adjustAssetBalance(db, existing.to_account_id, -amt);
+          adjustAssetBalance(db, existing.account_id, amt, userId);
+          adjustAssetBalance(db, existing.to_account_id, -amt, userId);
         }
       }
 
-      db.prepare('DELETE FROM cashflow WHERE id = ?').run(req.params.id);
+      db.prepare('DELETE FROM cashflow WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     });
 
     runDelete();
-    await takeSnapshot();
+    await takeSnapshot(userId);
     res.json({ message: 'Cashflow entry deleted and balance reversed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -368,20 +382,21 @@ router.delete('/:id', async (req, res) => {
 router.get('/summary/:year/:month', (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { year, month } = req.params;
     const m = String(month).padStart(2, '0');
 
     const income = db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='income' AND strftime('%Y', date)=? AND strftime('%m', date)=?"
-    ).get(String(year), m);
+      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='income' AND strftime('%Y', date)=? AND strftime('%m', date)=? AND user_id=?"
+    ).get(String(year), m, userId);
 
     const expenses = db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='expense' AND strftime('%Y', date)=? AND strftime('%m', date)=?"
-    ).get(String(year), m);
+      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='expense' AND strftime('%Y', date)=? AND strftime('%m', date)=? AND user_id=?"
+    ).get(String(year), m, userId);
 
     const transfers = db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='transfer' AND strftime('%Y', date)=? AND strftime('%m', date)=?"
-    ).get(String(year), m);
+      "SELECT COALESCE(SUM(amount), 0) as total FROM cashflow WHERE type='transfer' AND strftime('%Y', date)=? AND strftime('%m', date)=? AND user_id=?"
+    ).get(String(year), m, userId);
 
     res.json({
       year: Number(year), month: Number(month),

@@ -4,6 +4,14 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, P
 import html2pdf from 'html2pdf.js';
 import './styles.css';
 
+const isMobileClient = () => typeof window !== 'undefined' && (
+  Boolean(window.Capacitor?.isNativePlatform?.()) ||
+  window.location.protocol === 'capacitor:' ||
+  (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80'))
+);
+
+const DEFAULT_CLOUD_API_URL = import.meta.env.VITE_API_BASE_URL || 'https://networth-tracker-api.onrender.com';
+
 const getApiBase = () => {
   const custom = typeof window !== 'undefined' ? localStorage.getItem('server_url') : null;
   if (custom && custom.trim()) {
@@ -12,6 +20,10 @@ const getApiBase = () => {
       return clean;
     }
     return clean + '/api';
+  }
+  if (isMobileClient() && DEFAULT_CLOUD_API_URL) {
+    let clean = DEFAULT_CLOUD_API_URL.trim().replace(/\/+$/, '');
+    return clean.endsWith('/api') ? clean : clean + '/api';
   }
   return '/api';
 };
@@ -589,18 +601,14 @@ function investmentInvestedAmount(item, settings) {
 }
 
 function Auth({ onLogin }) {
-  const isMobileApp = typeof window !== 'undefined' && (
-    window.Capacitor?.isNativePlatform?.() ||
-    window.location.protocol === 'capacitor:' ||
-    (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80'))
-  );
+  const isMobileApp = isMobileClient();
 
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showServerConfig, setShowServerConfig] = useState(isMobileApp && !localStorage.getItem('server_url'));
-  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || (isMobileApp ? 'http://192.168.0.124:3001' : ''));
+  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || (isMobileApp ? DEFAULT_CLOUD_API_URL : ''));
 
   async function submit(e) {
     e.preventDefault();
@@ -679,6 +687,19 @@ function Auth({ onLogin }) {
                 <button
                   type="button"
                   className="secondary"
+                  style={{ width: '100%', fontSize: '0.82rem', padding: '7px', background: 'rgba(56, 189, 248, 0.15)', borderColor: '#0ea5e9', color: '#38bdf8' }}
+                  onClick={() => {
+                    setServerUrl(DEFAULT_CLOUD_API_URL);
+                    localStorage.setItem('server_url', DEFAULT_CLOUD_API_URL);
+                    setError('');
+                    alert(`Server URL set to Cloud: ${DEFAULT_CLOUD_API_URL}`);
+                  }}
+                >
+                  ☁️ Connect to Cloud Server
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
                   style={{ width: '100%', fontSize: '0.82rem', padding: '7px', background: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981', color: '#34d399' }}
                   onClick={() => {
                     setServerUrl('http://192.168.0.124:3001');
@@ -687,7 +708,7 @@ function Auth({ onLogin }) {
                     alert('Server URL set to PC IP: http://192.168.0.124:3001');
                   }}
                 >
-                  ⚡ One-Tap Connect: http://192.168.0.124:3001
+                  💻 Local PC LAN: http://192.168.0.124:3001
                 </button>
                 <button type="button" className="secondary" style={{ width: '100%', fontSize: '0.82rem', padding: '7px' }} onClick={handleSaveServer}>
                   Save Custom Server URL

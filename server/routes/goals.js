@@ -6,16 +6,15 @@ const { getDb } = require('../db');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const goals = db.prepare('SELECT * FROM goals ORDER BY target_date ASC, created_at DESC').all();
+    const userId = req.user?.id || 1;
+    const goals = db.prepare('SELECT * FROM goals WHERE user_id = ? ORDER BY target_date ASC, created_at DESC').all(userId);
     
     // For each goal, if it's linked to an asset, dynamically update current_amount
     for (let goal of goals) {
       if (goal.linked_asset_id) {
-        const asset = db.prepare('SELECT current_value FROM assets WHERE id = ?').get(goal.linked_asset_id);
+        const asset = db.prepare('SELECT current_value FROM assets WHERE id = ? AND user_id = ?').get(goal.linked_asset_id, userId);
         if (asset) {
           goal.current_amount = asset.current_value;
-          // Optionally, persist this update to db:
-          // db.prepare('UPDATE goals SET current_amount = ? WHERE id = ?').run(goal.current_amount, goal.id);
         }
       }
       
@@ -33,16 +32,17 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { name, target_amount, current_amount = 0, target_date, color, icon, linked_asset_id } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Goal name is required' });
     if (target_amount === undefined || target_amount === null || target_amount === '') return res.status(400).json({ error: 'Target amount is required' });
     
     const stmt = db.prepare(
-      'INSERT INTO goals (name, target_amount, current_amount, target_date, color, icon, linked_asset_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO goals (name, target_amount, current_amount, target_date, color, icon, linked_asset_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const info = stmt.run(name, target_amount, current_amount, target_date, color, icon, linked_asset_id);
+    const info = stmt.run(name, target_amount, current_amount, target_date, color, icon, linked_asset_id, userId);
     
-    const newGoal = db.prepare('SELECT * FROM goals WHERE id = ?').get(info.lastInsertRowid);
+    const newGoal = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(info.lastInsertRowid, userId);
     res.json(newGoal);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -53,15 +53,16 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const { name, target_amount, current_amount, target_date, color, icon, linked_asset_id } = req.body;
     if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Goal name cannot be empty' });
     if (target_amount !== undefined && (target_amount === null || target_amount === '')) return res.status(400).json({ error: 'Target amount cannot be empty' });
     
-    const existing = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id);
+    const existing = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Goal not found' });
 
     const stmt = db.prepare(
-      'UPDATE goals SET name=?, target_amount=?, current_amount=?, target_date=?, color=?, icon=?, linked_asset_id=? WHERE id=?'
+      'UPDATE goals SET name=?, target_amount=?, current_amount=?, target_date=?, color=?, icon=?, linked_asset_id=? WHERE id=? AND user_id=?'
     );
     stmt.run(
       name ?? existing.name,
@@ -71,10 +72,11 @@ router.put('/:id', (req, res) => {
       color ?? existing.color,
       icon ?? existing.icon,
       linked_asset_id !== undefined ? linked_asset_id : existing.linked_asset_id,
-      req.params.id
+      req.params.id,
+      userId
     );
     
-    const updated = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id);
+    const updated = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -85,9 +87,11 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    // Delete contributions first
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!existing) return res.status(404).json({ error: 'Goal not found' });
     db.prepare('DELETE FROM goal_contributions WHERE goal_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM goals WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM goals WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -98,22 +102,23 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/contribute', (req, res) => {
   try {
     const db = getDb();
+    const userId = req.user?.id || 1;
     const goal_id = req.params.id;
     const { amount, date, notes } = req.body;
     
-    const goal = db.prepare('SELECT * FROM goals WHERE id = ?').get(goal_id);
+    const goal = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(goal_id, userId);
     if (!goal) return res.status(404).json({ error: 'Goal not found' });
     if (goal.linked_asset_id) return res.status(400).json({ error: 'Cannot manually contribute to a goal linked to an asset' });
 
     // Add contribution
-    const stmt = db.prepare('INSERT INTO goal_contributions (goal_id, amount, date, notes) VALUES (?, ?, ?, ?)');
-    stmt.run(goal_id, amount, date || new Date().toISOString().split('T')[0], notes || '');
+    const stmt = db.prepare('INSERT INTO goal_contributions (goal_id, amount, date, notes, user_id) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(goal_id, amount, date || new Date().toISOString().split('T')[0], notes || '', userId);
 
     // Update goal current_amount
     const newAmount = (goal.current_amount || 0) + parseFloat(amount);
-    db.prepare('UPDATE goals SET current_amount = ? WHERE id = ?').run(newAmount, goal_id);
+    db.prepare('UPDATE goals SET current_amount = ? WHERE id = ? AND user_id = ?').run(newAmount, goal_id, userId);
     
-    const updatedGoal = db.prepare('SELECT * FROM goals WHERE id = ?').get(goal_id);
+    const updatedGoal = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(goal_id, userId);
     res.json(updatedGoal);
   } catch (err) {
     res.status(500).json({ error: err.message });

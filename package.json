@@ -1,6 +1,6 @@
 {
   "name": "networth-tracker-v2",
-  "version": "2.4.4",
+  "version": "2.5.0",
   "description": "NetWorth Tracker v2 - v1 feature-parity rebuild",
   "private": true,
   "main": "electron/main.js",
@@ -9,8 +9,10 @@
     "dev:server": "node server/index.js",
     "dev:client": "vite --host 127.0.0.1",
     "dev:electron": "wait-on http://127.0.0.1:5173 && node electron/run-dev.js",
+    "build": "npm run build:client",
     "build:client": "vite build",
     "start": "node electron/run-dev.js",
+    "start:server": "node server/index.js",
     "pack": "npm run build:client && electron-builder --dir",
     "dist": "npm run build:client && electron-builder"
   },

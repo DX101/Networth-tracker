@@ -27,13 +27,15 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     ensureInsuranceTable(db);
+    const userId = req.user?.id || 1;
     const policies = db.prepare(`
       SELECT ins.*, 
              a.name AS account_name 
       FROM insurance ins
       LEFT JOIN assets a ON ins.account_id = a.id
+      WHERE ins.user_id = ?
       ORDER BY ins.next_due_date ASC, ins.id DESC
-    `).all();
+    `).all(userId);
     res.json(policies);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -45,13 +47,14 @@ router.get('/:id', (req, res) => {
   try {
     const db = getDb();
     ensureInsuranceTable(db);
+    const userId = req.user?.id || 1;
     const policy = db.prepare(`
       SELECT ins.*, 
              a.name AS account_name 
       FROM insurance ins
       LEFT JOIN assets a ON ins.account_id = a.id
-      WHERE ins.id = ?
-    `).get(req.params.id);
+      WHERE ins.id = ? AND ins.user_id = ?
+    `).get(req.params.id, userId);
 
     if (!policy) return res.status(404).json({ error: 'Policy not found' });
     res.json(policy);
@@ -65,6 +68,7 @@ router.post('/', async (req, res) => {
   try {
     const db = getDb();
     ensureInsuranceTable(db);
+    const userId = req.user?.id || 1;
     const {
       policy_name, provider, policy_type, policy_number,
       sum_assured, cash_value, premium_amount, premium_frequency,
@@ -86,8 +90,8 @@ router.post('/', async (req, res) => {
         sum_assured, cash_value, premium_amount, premium_frequency,
         next_due_date, start_date, maturity_date, account_id,
         nominee, status, notes,
-        policy_term, maturity_payout_option, maturity_amount, vested_bonus, loyalty_addition
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        policy_term, maturity_payout_option, maturity_amount, vested_bonus, loyalty_addition, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -110,17 +114,18 @@ router.post('/', async (req, res) => {
       maturity_payout_option || '',
       maturity_amount !== undefined && maturity_amount !== null && maturity_amount !== '' ? Number(maturity_amount) : 0,
       vested_bonus !== undefined && vested_bonus !== null && vested_bonus !== '' ? Number(vested_bonus) : 0,
-      loyalty_addition !== undefined && loyalty_addition !== null && loyalty_addition !== '' ? Number(loyalty_addition) : 0
+      loyalty_addition !== undefined && loyalty_addition !== null && loyalty_addition !== '' ? Number(loyalty_addition) : 0,
+      userId
     );
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     const policy = db.prepare(`
       SELECT ins.*, a.name AS account_name 
       FROM insurance ins
       LEFT JOIN assets a ON ins.account_id = a.id
-      WHERE ins.id = ?
-    `).get(result.lastInsertRowid);
+      WHERE ins.id = ? AND ins.user_id = ?
+    `).get(result.lastInsertRowid, userId);
 
     res.status(201).json(policy);
   } catch (err) {
@@ -133,7 +138,8 @@ router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureInsuranceTable(db);
-    const existing = db.prepare('SELECT * FROM insurance WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM insurance WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Policy not found' });
 
     const {
@@ -152,7 +158,7 @@ router.put('/:id', async (req, res) => {
         nominee = ?, status = ?, notes = ?,
         policy_term = ?, maturity_payout_option = ?, maturity_amount = ?, vested_bonus = ?, loyalty_addition = ?,
         updated_at = datetime('now')
-      WHERE id = ?
+      WHERE id = ? AND user_id = ?
     `);
 
     stmt.run(
@@ -176,17 +182,18 @@ router.put('/:id', async (req, res) => {
       maturity_amount !== undefined ? (Number(maturity_amount) || 0) : (existing.maturity_amount || 0),
       vested_bonus !== undefined ? (Number(vested_bonus) || 0) : (existing.vested_bonus || 0),
       loyalty_addition !== undefined ? (Number(loyalty_addition) || 0) : (existing.loyalty_addition || 0),
-      req.params.id
+      req.params.id,
+      userId
     );
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     const policy = db.prepare(`
       SELECT ins.*, a.name AS account_name 
       FROM insurance ins
       LEFT JOIN assets a ON ins.account_id = a.id
-      WHERE ins.id = ?
-    `).get(req.params.id);
+      WHERE ins.id = ? AND ins.user_id = ?
+    `).get(req.params.id, userId);
 
     res.json(policy);
   } catch (err) {
@@ -199,11 +206,12 @@ router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureInsuranceTable(db);
-    const existing = db.prepare('SELECT * FROM insurance WHERE id = ?').get(req.params.id);
+    const userId = req.user?.id || 1;
+    const existing = db.prepare('SELECT * FROM insurance WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) return res.status(404).json({ error: 'Policy not found' });
 
-    db.prepare('DELETE FROM insurance WHERE id = ?').run(req.params.id);
-    await takeSnapshot();
+    db.prepare('DELETE FROM insurance WHERE id = ? AND user_id = ?').run(req.params.id, userId);
+    await takeSnapshot(userId);
     res.json({ message: 'Policy deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -216,8 +224,9 @@ router.post('/:id/pay-premium', async (req, res) => {
     const db = getDb();
     ensureInsuranceTable(db);
     ensureCashflowColumns(db);
+    const userId = req.user?.id || 1;
 
-    const policy = db.prepare('SELECT * FROM insurance WHERE id = ?').get(req.params.id);
+    const policy = db.prepare('SELECT * FROM insurance WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!policy) return res.status(404).json({ error: 'Policy not found' });
 
     const { amount, date, account_id, syncCashflow } = req.body;
@@ -231,36 +240,37 @@ router.post('/:id/pay-premium', async (req, res) => {
 
     // 1. Advance next_due_date
     const newDueDate = advanceDueDate(policy.next_due_date || paymentDate, policy.premium_frequency);
-    db.prepare("UPDATE insurance SET next_due_date = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(newDueDate, req.params.id);
+    db.prepare("UPDATE insurance SET next_due_date = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+      .run(newDueDate, req.params.id, userId);
 
     // 2. Record Cashflow Expense
     if (syncCashflow !== false) {
       // Deduct from bank account if specified
       if (targetAccountId) {
-        db.prepare("UPDATE assets SET current_value = ROUND(current_value - ?, 2), updated_at = datetime('now') WHERE id = ?")
-          .run(paymentAmount, targetAccountId);
+        db.prepare("UPDATE assets SET current_value = ROUND(current_value - ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(paymentAmount, targetAccountId, userId);
       }
 
       db.prepare(`
-        INSERT INTO cashflow (type, amount, category, date, description, account_id, adjust_balance)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cashflow (type, amount, category, date, description, account_id, adjust_balance, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         'expense', paymentAmount, 'Insurance', paymentDate,
         `Premium - ${policy.policy_name} (${policy.provider})`,
         targetAccountId || null,
-        targetAccountId ? 1 : 0
+        targetAccountId ? 1 : 0,
+        userId
       );
     }
 
-    await takeSnapshot();
+    await takeSnapshot(userId);
 
     const updated = db.prepare(`
       SELECT ins.*, a.name AS account_name 
       FROM insurance ins
       LEFT JOIN assets a ON ins.account_id = a.id
-      WHERE ins.id = ?
-    `).get(req.params.id);
+      WHERE ins.id = ? AND ins.user_id = ?
+    `).get(req.params.id, userId);
 
     res.json({
       success: true,
