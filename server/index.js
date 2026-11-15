@@ -49,6 +49,18 @@ app.use('/api/subscriptions', authMiddleware, subscriptionsRoutes);
 app.use('/api/insurance', authMiddleware, insuranceRoutes);
 app.use('/api/backup', backupRoutes);
 
+// Catch-all for undefined API routes (ensure JSON is returned instead of HTML)
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Global API error handler ensuring JSON responses
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('[server error]', err);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+});
+
 // Serve static client build in production
 const clientBuildPath = CLIENT_BUILD_PATH;
 app.use(express.static(clientBuildPath));

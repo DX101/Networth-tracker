@@ -7,7 +7,11 @@ import './styles.css';
 const getApiBase = () => {
   const custom = typeof window !== 'undefined' ? localStorage.getItem('server_url') : null;
   if (custom && custom.trim()) {
-    return custom.trim().replace(/\/$/, '') + '/api';
+    let clean = custom.trim().replace(/\/+$/, '');
+    if (clean.endsWith('/api')) {
+      return clean;
+    }
+    return clean + '/api';
   }
   return '/api';
 };
@@ -31,13 +35,29 @@ const DEFAULT_CATEGORIES = {
 async function api(path, options = {}) {
   const token = localStorage.getItem('token');
   const baseUrl = getApiBase();
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
-  });
+  let res;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
+    });
+  } catch (netErr) {
+    throw new Error(`Cannot reach server at ${baseUrl}. Please check your connection and Server Settings.`);
+  }
+
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new Error((data && data.error) || res.statusText);
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      if (text.trim().startsWith('<') || text.includes('<!doctype') || text.includes('<html')) {
+        throw new Error(`Cannot reach NetWorth API server. If on mobile, please tap "Configure Server URL" below and connect to your PC's IP.`);
+      }
+      throw new Error(text.slice(0, 100) || 'Invalid server response');
+    }
+  }
+  if (!res.ok) throw new Error((data && data.error) || res.statusText || 'Request failed');
   return data;
 }
 
@@ -569,12 +589,18 @@ function investmentInvestedAmount(item, settings) {
 }
 
 function Auth({ onLogin }) {
+  const isMobileApp = typeof window !== 'undefined' && (
+    window.Capacitor?.isNativePlatform?.() ||
+    window.location.protocol === 'capacitor:' ||
+    (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80'))
+  );
+
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [showServerConfig, setShowServerConfig] = useState(false);
-  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || '');
+  const [showServerConfig, setShowServerConfig] = useState(isMobileApp && !localStorage.getItem('server_url'));
+  const [serverUrl, setServerUrl] = useState(localStorage.getItem('server_url') || (isMobileApp ? 'http://192.168.0.124:3001' : ''));
 
   async function submit(e) {
     e.preventDefault();
@@ -584,8 +610,18 @@ function Auth({ onLogin }) {
       localStorage.setItem('token', data.token);
       onLogin(data.user);
     } catch (err) {
-      if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('Load failed'))) {
-        setError('Cannot reach server. Please tap "⚙️ Server Settings" below to verify your server address.');
+      const msg = err.message || '';
+      if (
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('Load failed') ||
+        msg.includes('Cannot reach') ||
+        msg.includes('Server Settings') ||
+        msg.includes('<!doctype') ||
+        msg.includes('Unexpected token') ||
+        msg.includes('not valid JSON')
+      ) {
+        setError("Cannot reach backend server. If using the mobile app, tap 'Configure Server URL' below and enter your PC's IP address (e.g. http://192.168.0.124:3001).");
         setShowServerConfig(true);
       } else {
         setError(err.message);
@@ -594,12 +630,18 @@ function Auth({ onLogin }) {
   }
 
   function handleSaveServer(e) {
-    e.preventDefault();
-    const val = serverUrl.trim();
+    if (e && e.preventDefault) e.preventDefault();
+    let val = serverUrl.trim();
     if (val) {
+      val = val.replace(/\/+$/, '');
+      if (val.endsWith('/api')) {
+        val = val.slice(0, -4);
+      }
       localStorage.setItem('server_url', val);
+      setServerUrl(val);
     } else {
       localStorage.removeItem('server_url');
+      setServerUrl('');
     }
     setError('');
     alert('Server URL saved: ' + (val || 'Default (local)'));
@@ -628,14 +670,29 @@ function Auth({ onLogin }) {
                 Server / PC IP Address:
               </label>
               <input
-                placeholder="e.g. http://192.168.1.15:3001"
+                placeholder="e.g. http://192.168.0.124:3001"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
                 style={{ fontSize: '0.85rem', padding: '8px', marginBottom: '8px' }}
               />
-              <button type="button" className="secondary" style={{ width: '100%', fontSize: '0.82rem', padding: '7px' }} onClick={handleSaveServer}>
-                Save Server URL
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ width: '100%', fontSize: '0.82rem', padding: '7px', background: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981', color: '#34d399' }}
+                  onClick={() => {
+                    setServerUrl('http://192.168.0.124:3001');
+                    localStorage.setItem('server_url', 'http://192.168.0.124:3001');
+                    setError('');
+                    alert('Server URL set to PC IP: http://192.168.0.124:3001');
+                  }}
+                >
+                  ⚡ One-Tap Connect: http://192.168.0.124:3001
+                </button>
+                <button type="button" className="secondary" style={{ width: '100%', fontSize: '0.82rem', padding: '7px' }} onClick={handleSaveServer}>
+                  Save Custom Server URL
+                </button>
+              </div>
             </div>
           )}
         </div>
