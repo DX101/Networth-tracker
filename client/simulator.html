@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetWorth Tracker — Mobile Simulator & Testbed</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at 50% 15%, #1e293b 0%, #090d16 100%);
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    /* Top control toolbar */
+    header {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 999;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, #0d9488, #14b8a6);
+      color: white;
+      font-weight: 700;
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .brand h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #f8fafc;
+      letter-spacing: -0.3px;
+    }
+
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .btn.active {
+      background: #0d9488;
+      border-color: #14b8a6;
+      color: white;
+      box-shadow: 0 0 12px rgba(20, 184, 166, 0.4);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Simulator Stage */
+    .stage {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px 40px 20px;
+      min-height: calc(100vh - 70px);
+    }
+
+    /* Phone Mockup Chassis */
+    .phone-container {
+      position: relative;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-origin: center top;
+    }
+
+    .phone-chassis {
+      background: #0b0f19;
+      border-radius: 46px;
+      padding: 10px;
+      box-shadow: 
+        0 0 0 3px #27272a,
+        0 0 0 5px #18181b,
+        0 25px 50px -12px rgba(0, 0, 0, 0.8),
+        0 0 80px rgba(13, 148, 136, 0.2);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Phone Screen Container */
+    .phone-screen {
+      border-radius: 36px;
+      overflow: hidden;
+      background: #0f172a;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.6);
+    }
+
+    /* Realistic Phone Status Bar */
+    .phone-status-bar {
+      height: 34px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #94a3b8;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .dynamic-island {
+      width: 80px;
+      height: 18px;
+      background: #000000;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    }
+    .camera-lens {
+      width: 7px;
+      height: 7px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 50%;
+      box-shadow: inset 0 0 2px #06b6d4;
+    }
+    .camera-sensor {
+      width: 4px;
+      height: 4px;
+      background: #0f172a;
+      border-radius: 50%;
+    }
+
+    .status-icons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* App Viewport inside Phone Screen */
+    .iframe-wrapper {
+      flex: 1;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    iframe {
+      border: none;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #0f172a;
+    }
+
+    /* Bottom Home Indicator Bar */
+    .home-bar-area {
+      height: 18px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .home-bar {
+      width: 110px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.4);
+      border-radius: 4px;
+    }
+
+    /* Helper info bar below device */
+    .device-info {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span class="brand-badge">Mobile Testbed</span>
+      <h1>NetWorth Tracker Simulator</h1>
+    </div>
+
+    <div class="controls-group">
+      <span style="font-size: 0.8rem; color: #94a3b8; margin-right: 4px;">Preset:</span>
+      <button class="btn active" id="btn-pixel" onclick="setDevice(412, 892, 'Pixel 7 / Android', this)">
+        📱 Pixel 7 (412×892)
+      </button>
+      <button class="btn" id="btn-galaxy" onclick="setDevice(360, 780, 'Galaxy S22', this)">
+        📱 Galaxy (360×780)
+      </button>
+      <button class="btn" id="btn-iphone" onclick="setDevice(393, 852, 'iPhone 15 Pro', this)">
+        📱 iPhone 15 (393×852)
+      </button>
+      <button class="btn" id="btn-small" onclick="setDevice(360, 640, 'Compact Phone', this)">
+        📱 Compact (360×640)
+      </button>
+    </div>
+
+    <div class="controls-group">
+      <button class="btn btn-secondary" onclick="toggleRotation()" title="Rotate Screen">
+        🔄 Rotate
+      </button>
+      <button class="btn btn-secondary" onclick="reloadFrame()" title="Reload App">
+        ↻ Reload
+      </button>
+      <a class="btn btn-secondary" href="/" target="_blank" title="Open Fullscreen in New Window">
+        ↗ Full Window
+      </a>
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span>HMR Hot-Reload Active</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="phone-container" id="phoneContainer">
+      <div class="phone-chassis" id="phoneChassis">
+
+        <div class="phone-screen" id="phoneScreen">
+          <!-- Realistic Top Phone Status Bar (Does not overlap app!) -->
+          <div class="phone-status-bar">
+            <span class="status-time">9:41</span>
+            <div class="dynamic-island">
+              <div class="camera-lens"></div>
+              <div class="camera-sensor"></div>
+            </div>
+            <div class="status-icons">
+              <svg width="14" height="10" viewBox="0 0 15 11" fill="currentColor">
+                <path d="M0 8h2v3H0zM3 6h2v5H3zM6 4h2v7H6zM9 2h2v9H9zM12 0h2v11h-2z" />
+              </svg>
+              <span>5G</span>
+              <span style="font-size: 11px;">100%</span>
+            </div>
+          </div>
+
+          <!-- App Viewport -->
+          <div class="iframe-wrapper">
+            <iframe id="appFrame" src="/" title="NetWorth Tracker Mobile Preview"></iframe>
+          </div>
+
+          <!-- Home Bar -->
+          <div class="home-bar-area">
+            <div class="home-bar"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="device-info" id="deviceInfo">
+        Displaying Pixel 7 / Android (412 × 892 px) • Vite Hot-Reload Sandbox
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentWidth = 412;
+    let currentHeight = 892;
+    let isLandscape = false;
+    let currentLabel = 'Pixel 7 / Android';
+
+    function updateDimensions() {
+      const screen = document.getElementById('phoneScreen');
+      const w = isLandscape ? currentHeight : currentWidth;
+      const h = isLandscape ? currentWidth : currentHeight;
+      screen.style.width = w + 'px';
+      screen.style.height = h + 'px';
+
+      const info = document.getElementById('deviceInfo');
+      info.textContent = `Displaying ${currentLabel} (${w} × ${h} px) ${isLandscape ? '• Landscape' : '• Portrait'} • Vite Hot-Reload Sandbox`;
+    }
+
+    function setDevice(w, h, label, btn) {
+      currentWidth = w;
+      currentHeight = h;
+      currentLabel = label;
+      isLandscape = false;
+
+      document.querySelectorAll('.controls-group .btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+
+      updateDimensions();
+    }
+
+    function toggleRotation() {
+      isLandscape = !isLandscape;
+      updateDimensions();
+    }
+
+    function reloadFrame() {
+      const frame = document.getElementById('appFrame');
+      frame.src = frame.src;
+    }
+
+    // Initialize
+    updateDimensions();
+
+    // Auto-scale phone if monitor height is smaller than phone height
+    function autoScale() {
+      const container = document.getElementById('phoneContainer');
+      const availableHeight = window.innerHeight - 140;
+      const targetHeight = (isLandscape ? currentWidth : currentHeight) + 40;
+      if (availableHeight < targetHeight) {
+        const scale = Math.max(0.60, Math.min(1, availableHeight / targetHeight));
+        container.style.transform = `scale(${scale})`;
+      } else {
+        container.style.transform = 'scale(1)';
+      }
+    }
+    window.addEventListener('resize', autoScale);
+    autoScale();
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import html2pdf from 'html2pdf.js';
@@ -84,13 +84,88 @@ function PremiumTooltip({ active, payload, label, settings }) {
   return <div className="chart-tooltip"><div className="tooltip-label">{formatDate(label, settings)}</div>{payload.map((item) => <div className="tooltip-row" key={item.dataKey || item.name}><span style={{ background: item.color }} />{item.name || item.dataKey}<strong>{typeof item.value === 'number' ? money(item.value, settings) : item.value}</strong></div>)}</div>;
 }
 
+const STAT_ICONS = {
+  networth: '💎',
+  assets: '🏛️',
+  liabilities: '💳',
+  cashflow: '💸',
+  investments: '📈',
+  pnl: '⚡'
+};
+
 function StatCard({ id, label, value, hint, color, breakdown, setBreakdown, settings }) {
   const open = breakdown === id;
-  return <button className={`card stat-card stat-${color} ${open ? 'selected' : ''}`} onClick={() => setBreakdown(open ? null : id)}>
-    <span>{label}<b>{open ? '\u2303' : '\u2304'}</b></span>
-    <strong>{money(value, settings)}</strong>
-    <small>{hint}</small>
-  </button>;
+  const icon = STAT_ICONS[id] || '📊';
+  const numVal = typeof value === 'number' ? value : parseFloat(value) || 0;
+
+  // Dynamic reddish for negative, greenish for positive on signed cards (cashflow, pnl, networth)
+  let dynamicTone = '';
+  let displayValue = money(value, settings);
+  if (id === 'cashflow' || id === 'pnl') {
+    if (numVal < 0) {
+      dynamicTone = 'tone-negative';
+    } else if (numVal > 0) {
+      dynamicTone = 'tone-positive';
+      if (!String(displayValue).startsWith('+') && !String(displayValue).startsWith('-')) {
+        displayValue = `+${displayValue}`;
+      }
+    }
+  } else if (id === 'networth') {
+    if (numVal < 0) {
+      dynamicTone = 'tone-negative';
+    } else if (numVal > 0) {
+      dynamicTone = 'tone-positive';
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`card stat-card stat-${color} ${dynamicTone} ${open ? 'selected' : ''}`}
+      onClick={() => setBreakdown(open ? null : id)}
+    >
+      <div className="stat-card-head">
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="stat-icon-chip">{icon}</span>
+          <span>{label}</span>
+        </span>
+        <b style={{ opacity: 0.6 }}>{open ? '\u2303' : '\u2304'}</b>
+      </div>
+      <strong className={`stat-value ${dynamicTone}`}>{displayValue}</strong>
+      <small className="stat-hint">{hint}</small>
+    </button>
+  );
+}
+
+function TableScrollHintBar({ onScrollLeft, onScrollRight }) {
+  return (
+    <div className="table-scroll-hint-bar">
+      <div className="table-scroll-hint-text">
+        <span className="table-scroll-icon">↔</span>
+        <span>Slide columns to view full details</span>
+      </div>
+      <div className="table-scroll-nav-btns">
+        <button
+          type="button"
+          className="table-nav-arrow-btn"
+          onClick={onScrollLeft}
+          title="Scroll table left"
+          aria-label="Scroll left"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className="table-nav-arrow-btn"
+          onClick={onScrollRight}
+          title="Scroll table right"
+          aria-label="Scroll right"
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const FALLBACK_EXCHANGE_RATES = {
@@ -569,19 +644,6 @@ function Auth({ onLogin }) {
   );
 }
 
-function generatePageNumbers(currentPage, totalPages) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-  if (currentPage <= 4) {
-    return [1, 2, 3, 4, 5, '...', totalPages];
-  }
-  if (currentPage >= totalPages - 3) {
-    return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-  }
-  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
-}
-
 function PaginationBar({ totalRecords, pageSize, currentPage, onPageChange, onPageSizeChange }) {
   if (!totalRecords || totalRecords <= 0) return null;
   const isAll = pageSize === 'all';
@@ -591,21 +653,19 @@ function PaginationBar({ totalRecords, pageSize, currentPage, onPageChange, onPa
   const startIdx = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * effectivePageSize + 1;
   const endIdx = isAll ? totalRecords : Math.min(safeCurrentPage * effectivePageSize, totalRecords);
 
-  const pages = generatePageNumbers(safeCurrentPage, totalPages);
-
   return (
     <div style={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '12px 18px',
+      padding: '10px 16px',
       borderTop: '1px solid #1e293b',
       background: '#090e1a',
       flexWrap: 'wrap',
-      gap: '12px',
+      gap: '10px',
       fontSize: '13px'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: '#94a3b8' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#94a3b8', flexWrap: 'wrap' }}>
         <span>
           Showing <strong style={{ color: '#f8fafc' }}>{startIdx}</strong> to <strong style={{ color: '#f8fafc' }}>{endIdx}</strong> of <strong style={{ color: '#f8fafc' }}>{totalRecords}</strong> records
         </span>
@@ -636,105 +696,60 @@ function PaginationBar({ totalRecords, pageSize, currentPage, onPageChange, onPa
       </div>
 
       {!isAll && totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            type="button"
-            disabled={safeCurrentPage <= 1}
-            onClick={() => onPageChange(1)}
-            style={{
-              padding: '4px 8px',
-              fontSize: '12px',
-              borderRadius: '6px',
-              border: '1px solid #334155',
-              background: '#0f172a',
-              color: safeCurrentPage <= 1 ? '#475569' : '#94a3b8',
-              cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-              opacity: safeCurrentPage <= 1 ? 0.5 : 1
-            }}
-            title="First Page"
-          >
-            « First
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
             disabled={safeCurrentPage <= 1}
             onClick={() => onPageChange(safeCurrentPage - 1)}
             style={{
-              padding: '4px 8px',
+              padding: '5px 12px',
               fontSize: '12px',
+              fontWeight: 600,
               borderRadius: '6px',
               border: '1px solid #334155',
               background: '#0f172a',
-              color: safeCurrentPage <= 1 ? '#475569' : '#94a3b8',
+              color: safeCurrentPage <= 1 ? '#475569' : '#e2e8f0',
               cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-              opacity: safeCurrentPage <= 1 ? 0.5 : 1
+              opacity: safeCurrentPage <= 1 ? 0.45 : 1,
+              transition: 'all 0.15s ease'
             }}
             title="Previous Page"
           >
             ‹ Prev
           </button>
 
-          {pages.map((p, idx) => (
-            p === '...' ? (
-              <span key={`dots-${idx}`} style={{ padding: '0 4px', color: '#64748b' }}>…</span>
-            ) : (
-              <button
-                key={p}
-                type="button"
-                onClick={() => onPageChange(p)}
-                style={{
-                  minWidth: '32px',
-                  height: '28px',
-                  padding: '2px 8px',
-                  fontSize: '12px',
-                  borderRadius: '6px',
-                  border: p === safeCurrentPage ? '1px solid #14b8a6' : '1px solid #334155',
-                  background: p === safeCurrentPage ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : '#0f172a',
-                  color: p === safeCurrentPage ? '#ffffff' : '#94a3b8',
-                  fontWeight: p === safeCurrentPage ? 700 : 500,
-                  cursor: 'pointer'
-                }}
-              >
-                {p}
-              </button>
-            )
-          ))}
+          <span style={{
+            padding: '4px 12px',
+            fontSize: '12px',
+            fontWeight: 600,
+            borderRadius: '6px',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '1px solid #334155',
+            color: '#94a3b8',
+            whiteSpace: 'nowrap'
+          }}>
+            Page <strong style={{ color: '#5eead4' }}>{safeCurrentPage}</strong> of <strong style={{ color: '#f8fafc' }}>{totalPages}</strong>
+          </span>
 
           <button
             type="button"
             disabled={safeCurrentPage >= totalPages}
             onClick={() => onPageChange(safeCurrentPage + 1)}
             style={{
-              padding: '4px 8px',
+              padding: '5px 12px',
               fontSize: '12px',
+              fontWeight: 600,
               borderRadius: '6px',
               border: '1px solid #334155',
               background: '#0f172a',
-              color: safeCurrentPage >= totalPages ? '#475569' : '#94a3b8',
+              color: safeCurrentPage >= totalPages ? '#475569' : '#e2e8f0',
               cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-              opacity: safeCurrentPage >= totalPages ? 0.5 : 1
+              opacity: safeCurrentPage >= totalPages ? 0.45 : 1,
+              transition: 'all 0.15s ease'
             }}
             title="Next Page"
           >
             Next ›
-          </button>
-          <button
-            type="button"
-            disabled={safeCurrentPage >= totalPages}
-            onClick={() => onPageChange(totalPages)}
-            style={{
-              padding: '4px 8px',
-              fontSize: '12px',
-              borderRadius: '6px',
-              border: '1px solid #334155',
-              background: '#0f172a',
-              color: safeCurrentPage >= totalPages ? '#475569' : '#94a3b8',
-              cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-              opacity: safeCurrentPage >= totalPages ? 0.5 : 1
-            }}
-            title="Last Page"
-          >
-            Last »
           </button>
         </div>
       )}
@@ -751,7 +766,9 @@ function TableFilterBar({
   categories = [],
   pageSize,
   onPageSizeChange,
-  extraControls = null
+  extraControls = null,
+  onScrollLeft = null,
+  onScrollRight = null
 }) {
   return (
     <div style={{
@@ -829,7 +846,7 @@ function TableFilterBar({
         {extraControls}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
         <select
           value={pageSize}
@@ -863,6 +880,7 @@ function Table({ columns, rows, onEdit, onDelete, searchPlaceholder = '🔍 Sear
     return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const tableWrapRef = useRef(null);
 
   const availableCategories = useMemo(() => {
     const cats = new Set();
@@ -893,6 +911,7 @@ function Table({ columns, rows, onEdit, onDelete, searchPlaceholder = '🔍 Sear
   const effectivePageSize = isAll ? filteredRows.length : Number(pageSize || 10);
   const totalPages = isAll ? 1 : Math.max(1, Math.ceil(filteredRows.length / effectivePageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const tableContainerRef = useRef(null);
 
   const paginatedRows = useMemo(() => {
     if (isAll) return filteredRows;
@@ -918,8 +937,14 @@ function Table({ columns, rows, onEdit, onDelete, searchPlaceholder = '🔍 Sear
           }
           setCurrentPage(1);
         }}
+        onScrollLeft={() => tableContainerRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+        onScrollRight={() => tableContainerRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
       />
-      <div style={{ overflowX: 'auto' }}>
+      <TableScrollHintBar
+        onScrollLeft={() => tableContainerRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+        onScrollRight={() => tableContainerRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
+      />
+      <div ref={tableContainerRef} style={{ overflowX: 'auto', scrollBehavior: 'smooth' }}>
         <table>
           <thead>
             <tr>
@@ -1137,7 +1162,42 @@ function BudgetPlanner({ settings }) {
   const chartRows = summary.categories.map(c => ({ name: c.category, Budget: Number(c.monthly_limit || 0), Spent: Number(c.spent || 0) }));
   const budgetFields = [{ name: 'category', label: 'Category' }, { name: 'monthly_limit', label: 'Budget Amount', type: 'number' }, { name: 'start_date', label: 'Start Date', type: 'date' }, { name: 'end_date', label: 'End Date', type: 'date' }, { name: 'notes', label: 'Notes' }];
   const expenseFields = [{ name: 'title', label: 'Expense Title' }, { name: 'amount', label: 'Amount', type: 'number' }, { name: 'date', label: 'Date', type: 'date' }, { name: 'notes', label: 'Notes' }];
-  return <section className="page budget-page"><div className="page-head"><div><h1>Budget Planner</h1><p className="muted">Independent budget planning with manual categories, date range, expense tracking.</p></div><button onClick={() => setEditing({ start_date: `${year}-${String(month).padStart(2, '0')}-01`, end_date: `${year}-${String(month).padStart(2, '0')}-28` })}>+ Add Budget</button></div><div className="budget-filters"><select value={month} onChange={e => setMonth(Number(e.target.value))}>{MONTHS.map((l, i) => <option key={l} value={i + 1}>{l}</option>)}</select><select value={year} onChange={e => setYear(Number(e.target.value))}>{yearOptions.map(v => <option key={v} value={v}>{v}</option>)}</select></div>{error && <div className="error">{error}</div>}<div className="cards budget-cards"><div className="card stat-card stat-teal"><span>Total Budget</span><strong>{money(summary.total_budget, settings)}</strong></div><div className="card stat-card stat-yellow"><span>Total Spent</span><strong>{money(summary.total_spent, settings)}</strong></div><div className="card stat-card stat-emerald"><span>Remaining</span><strong>{money(summary.total_remaining, settings)}</strong></div><div className="card stat-card stat-blue"><span>Budget Used</span><strong>{Number(summary.percent_used || 0).toFixed(1)}%</strong></div></div><div className="budget-layout"><Chart title="Budget vs. Actual Spending"><BarChart data={chartRows}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b" /><XAxis dataKey="name" /><YAxis /><Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(20,184,166,0.08)' }} /><Bar dataKey="Budget" fill="#14b8a6" radius={[8,8,0,0]} /><Bar dataKey="Spent" fill="#f59e0b" radius={[8,8,0,0]} /></BarChart></Chart><div className="budget-breakdown card"><h3>Category Breakdown</h3>{summary.categories.length === 0 ? <p className="muted">No budgets yet.</p> : summary.categories.map(item => { const p = Number(item.percent_used || 0); return <div className="budget-progress" key={item.id}><div className="budget-progress-head"><strong>{item.category}</strong><span>{money(item.spent, settings)} / {money(item.monthly_limit, settings)} {'\u2022'} {p.toFixed(1)}%</span></div><div className="budget-track"><div style={{ width: `${Math.min(p, 100)}%` }} /></div></div>; })}</div></div><div className="budget-list">{budgets.map(b => <div className="budget-detail card" key={b.id} id={`budget-card-${b.id}`}><div className="budget-detail-head"><div><h3>{b.category}</h3><p className="muted">{formatDate(b.start_date, settings)}{b.end_date ? ` - ${formatDate(b.end_date, settings)}` : ''}</p></div><div className="actions" data-html2canvas-ignore="true"><button className="secondary" onClick={() => exportBudgetToPDF(b)}>Export PDF</button><button className="secondary" onClick={() => setEditing(b)}>Edit</button><button className="danger" onClick={() => removeBudget(b.id)}>Delete</button></div></div><div className="budget-metrics"><MiniRow label="Budget" value={b.monthly_limit} settings={settings} tone="good" /><MiniRow label="Spent" value={b.spent} settings={settings} tone="bad" /><MiniRow label="Remaining" value={b.remaining} settings={settings} tone={b.remaining >= 0 ? 'good' : 'bad'} /><MiniRow label="Used" value={Number(b.percent_used || 0).toFixed(1)} settings={{ currency_symbol: '' }} suffix="%" /></div><div className="budget-detail-grid"><div><div className="section-title"><h3>Expenses</h3><button data-html2canvas-ignore="true" onClick={() => setExpenseBudget(b)}>+ Add Expense</button></div><div className="budget-expenses">{b.expenses?.length ? b.expenses.map(e => <div className="budget-expense-row" key={e.id}><div><strong>{e.title}</strong><small>{formatDate(e.date, settings)}{e.notes ? ` \u2022 ${e.notes}` : ''}</small></div><div className="actions"><span>{money(e.amount, settings)}</span><button data-html2canvas-ignore="true" className="danger" onClick={() => removeExpense(b.id, e.id)}>Delete</button></div></div>) : <p className="muted">No expenses yet.</p>}</div></div>{(() => { const pieData = [...(b.expenses || []).map(e => ({ name: e.title, value: Number(e.amount || 0) }))]; const rem = Math.max(Number(b.remaining || 0), 0); if (rem > 0) pieData.push({ name: 'Remaining', value: rem }); if (pieData.length === 0) pieData.push({ name: 'Empty', value: 1 }); return <div className="chart-card"><div className="chart-head"><h3>{b.category} Expense Split</h3></div><div style={{ display: 'flex', justifyContent: 'center' }}><PieChart width={350} height={260}><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={88} paddingAngle={pieData.length > 1 ? 3 : 0}>{pieData.map((entry, i) => <Cell key={i} fill={entry.name === 'Remaining' ? '#334155' : entry.name === 'Empty' ? '#1e293b' : COLORS[i % COLORS.length]} />)}</Pie><Tooltip content={<PremiumTooltip settings={settings} />} /></PieChart></div></div>; })()}</div></div>)}</div>{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} Budget`} fields={budgetFields} initial={editing} onCancel={() => setEditing(null)} onSave={saveBudget} />}{expenseBudget && <Modal title={`Add Expense \u2022 ${expenseBudget.category}`} fields={expenseFields} initial={{ date: new Date().toISOString().slice(0, 10) }} onCancel={() => setExpenseBudget(null)} onSave={addExpense} />}</section>;
+  return <section className="page budget-page"><div className="page-head"><div><h1>Budget Planner</h1><p className="muted">Independent budget planning with manual categories, date range, expense tracking.</p></div><button onClick={() => setEditing({ start_date: `${year}-${String(month).padStart(2, '0')}-01`, end_date: `${year}-${String(month).padStart(2, '0')}-28` })}>+ Add Budget</button></div><div className="budget-filters"><select value={month} onChange={e => setMonth(Number(e.target.value))}>{MONTHS.map((l, i) => <option key={l} value={i + 1}>{l}</option>)}</select><select value={year} onChange={e => setYear(Number(e.target.value))}>{yearOptions.map(v => <option key={v} value={v}>{v}</option>)}</select></div>{error && <div className="error">{error}</div>}      <div className="cards budget-cards">
+        <div className="card stat-card stat-teal">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">🎯</span>
+            <span className="stat-label">Total Budget</span>
+          </div>
+          <strong className="stat-value">{money(summary.total_budget, settings)}</strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>{summary.categories?.length || 0} categories set</small>
+        </div>
+        <div className="card stat-card stat-yellow">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">💸</span>
+            <span className="stat-label">Total Spent</span>
+          </div>
+          <strong className="stat-value">{money(summary.total_spent, settings)}</strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Current month</small>
+        </div>
+        <div className="card stat-card stat-emerald">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">💰</span>
+            <span className="stat-label">Remaining</span>
+          </div>
+          <strong className="stat-value">{money(summary.total_remaining, settings)}</strong>
+          <small style={{ color: '#64748b', fontSize: '11px' }}>Available funds</small>
+        </div>
+        <div className="card stat-card stat-blue">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">⚡</span>
+            <span className="stat-label">Budget Used</span>
+          </div>
+          <strong className="stat-value">{Number(summary.percent_used || 0).toFixed(1)}%</strong>
+          <small style={{ color: Number(summary.percent_used || 0) > 100 ? '#f43f5e' : '#64748b', fontSize: '11px' }}>
+            {Number(summary.percent_used || 0) > 100 ? 'Over limit' : 'On track'}
+          </small>
+        </div>
+      </div><div className="budget-layout"><Chart title="Budget vs. Actual Spending"><BarChart data={chartRows}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b" /><XAxis dataKey="name" /><YAxis /><Tooltip content={<PremiumTooltip settings={settings} />} cursor={{ fill: 'rgba(20,184,166,0.08)' }} /><Bar dataKey="Budget" fill="#14b8a6" radius={[8,8,0,0]} /><Bar dataKey="Spent" fill="#f59e0b" radius={[8,8,0,0]} /></BarChart></Chart><div className="budget-breakdown card"><h3>Category Breakdown</h3>{summary.categories.length === 0 ? <p className="muted">No budgets yet.</p> : summary.categories.map(item => { const p = Number(item.percent_used || 0); return <div className="budget-progress" key={item.id}><div className="budget-progress-head"><strong>{item.category}</strong><span>{money(item.spent, settings)} / {money(item.monthly_limit, settings)} {'\u2022'} {p.toFixed(1)}%</span></div><div className="budget-track"><div style={{ width: `${Math.min(p, 100)}%` }} /></div></div>; })}</div></div><div className="budget-list">{budgets.map(b => <div className="budget-detail card" key={b.id} id={`budget-card-${b.id}`}><div className="budget-detail-head"><div><h3>{b.category}</h3><p className="muted">{formatDate(b.start_date, settings)}{b.end_date ? ` - ${formatDate(b.end_date, settings)}` : ''}</p></div><div className="actions" data-html2canvas-ignore="true"><button className="secondary" onClick={() => exportBudgetToPDF(b)}>Export PDF</button><button className="secondary" onClick={() => setEditing(b)}>Edit</button><button className="danger" onClick={() => removeBudget(b.id)}>Delete</button></div></div><div className="budget-metrics"><MiniRow label="Budget" value={b.monthly_limit} settings={settings} tone="good" /><MiniRow label="Spent" value={b.spent} settings={settings} tone="bad" /><MiniRow label="Remaining" value={b.remaining} settings={settings} tone={b.remaining >= 0 ? 'good' : 'bad'} /><MiniRow label="Used" value={Number(b.percent_used || 0).toFixed(1)} settings={{ currency_symbol: '' }} suffix="%" /></div><div className="budget-detail-grid"><div><div className="section-title"><h3>Expenses</h3><button data-html2canvas-ignore="true" onClick={() => setExpenseBudget(b)}>+ Add Expense</button></div><div className="budget-expenses">{b.expenses?.length ? b.expenses.map(e => <div className="budget-expense-row" key={e.id}><div><strong>{e.title}</strong><small>{formatDate(e.date, settings)}{e.notes ? ` \u2022 ${e.notes}` : ''}</small></div><div className="actions"><span>{money(e.amount, settings)}</span><button data-html2canvas-ignore="true" className="danger" onClick={() => removeExpense(b.id, e.id)}>Delete</button></div></div>) : <p className="muted">No expenses yet.</p>}</div></div>{(() => { const pieData = [...(b.expenses || []).map(e => ({ name: e.title, value: Number(e.amount || 0) }))]; const rem = Math.max(Number(b.remaining || 0), 0); if (rem > 0) pieData.push({ name: 'Remaining', value: rem }); if (pieData.length === 0) pieData.push({ name: 'Empty', value: 1 }); return <div className="chart-card"><div className="chart-head"><h3>{b.category} Expense Split</h3></div><div style={{ display: 'flex', justifyContent: 'center' }}><PieChart width={350} height={260}><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={88} paddingAngle={pieData.length > 1 ? 3 : 0}>{pieData.map((entry, i) => <Cell key={i} fill={entry.name === 'Remaining' ? '#334155' : entry.name === 'Empty' ? '#1e293b' : COLORS[i % COLORS.length]} />)}</Pie><Tooltip content={<PremiumTooltip settings={settings} />} /></PieChart></div></div>; })()}</div></div>)}</div>{editing && <Modal title={`${editing.id ? 'Edit' : 'Add'} Budget`} fields={budgetFields} initial={editing} onCancel={() => setEditing(null)} onSave={saveBudget} />}{expenseBudget && <Modal title={`Add Expense \u2022 ${expenseBudget.category}`} fields={expenseFields} initial={{ date: new Date().toISOString().slice(0, 10) }} onCancel={() => setExpenseBudget(null)} onSave={addExpense} />}</section>;
 }
 
 function Modal({ title, fields, initial, onCancel, onSave, settings }) {
@@ -2118,13 +2178,7 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
           </div>
           <p className="muted">Track net worth, assets, liabilities, cash flow, investments and budget health.</p>
         </div>
-        <div className="quick-actions">
-          <button onClick={() => setQuickType('asset')}>+ Asset</button>
-          <button onClick={() => setQuickType('liability')}>+ Liability</button>
-          <button onClick={() => setEditingTx({})}>+ Cash Flow</button>
-          <button onClick={() => setQuickType('investment')}>+ Investment</button>
-          <button className="secondary glow-btn" onClick={handleTakeSnapshot}>⏱ Snapshot</button>
-        </div>
+
       </div>
 
       {(() => {
@@ -2290,9 +2344,10 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
           recent_transactions: <RecentCashFlow rows={data.cashflow.slice(0, 8)} settings={settings} onEdit={setEditingTx} onDelete={handleDeleteTx} />
         };
 
-        const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart', 'recent_transactions'];
+        const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart'];
         let currentLayout = [...defaultLayout];
         try { if (settings.dashboard_layout) currentLayout = JSON.parse(settings.dashboard_layout); } catch(e) {}
+        currentLayout = currentLayout.filter(k => k !== 'recent_transactions');
         
         // Ensure breakdown is ALWAYS right after stats (visually it drops down from the cards)
         currentLayout = currentLayout.filter(k => k !== 'breakdown');
@@ -2375,6 +2430,61 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
   const [fetchingRates, setFetchingRates] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const settingsTabsRef = useRef(null);
+  const catTabsRef = useRef(null);
+
+  const autoScrollIntoView = (container, btn) => {
+    if (!container || !btn) return;
+    setTimeout(() => {
+      const nextBtn = btn.nextElementSibling;
+      const prevBtn = btn.previousElementSibling;
+
+      // If next button exists and is past or near the container right edge, scroll to reveal it fully
+      if (nextBtn) {
+        const nextRight = nextBtn.offsetLeft + nextBtn.offsetWidth;
+        const containerRight = container.scrollLeft + container.clientWidth;
+        if (nextRight > containerRight - 20) {
+          const desiredScroll = nextRight - container.clientWidth + 24;
+          const maxScrollToKeepBtnVisible = btn.offsetLeft - 8;
+          container.scrollTo({
+            left: Math.min(desiredScroll, Math.max(0, maxScrollToKeepBtnVisible)),
+            behavior: 'smooth'
+          });
+          return;
+        }
+      }
+
+      // If previous button exists and is past or near the container left edge, scroll to reveal it
+      if (prevBtn) {
+        if (prevBtn.offsetLeft < container.scrollLeft + 20) {
+          const desiredScroll = prevBtn.offsetLeft - 24;
+          const minScrollToKeepBtnVisible = btn.offsetLeft + btn.offsetWidth - container.clientWidth + 8;
+          container.scrollTo({
+            left: Math.max(0, Math.max(desiredScroll, minScrollToKeepBtnVisible)),
+            behavior: 'smooth'
+          });
+          return;
+        }
+      }
+
+      // Center this button in container if not already centered
+      const centerTarget = btn.offsetLeft - (container.clientWidth / 2) + (btn.offsetWidth / 2);
+      container.scrollTo({
+        left: Math.max(0, centerTarget),
+        behavior: 'smooth'
+      });
+    }, 60);
+  };
+
+  const handleSettingsTabSelect = (t, e) => {
+    setActiveTab(t);
+    autoScrollIntoView(settingsTabsRef.current, e?.currentTarget);
+  };
+
+  const handleCatTypeSelect = (type, e) => {
+    setCatType(type);
+    autoScrollIntoView(catTabsRef.current, e?.currentTarget);
+  };
 
   useEffect(() => {
     if (window.electronAPI?.onUpdateStatus) {
@@ -2456,24 +2566,30 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       </div>
       {error && <div className="error">{error}</div>}
 
-      <div className="settings-tabs">
-        {['general', 'dashboard_layout', 'categories', 'exchange_rates', 'cloud_backups'].map(t => (
-          <button key={t} className={`pill ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
-            {t.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-          </button>
-        ))}
+      <div className="settings-tabs-wrapper">
+        <div ref={settingsTabsRef} className="settings-tabs">
+          {['general', 'dashboard_layout', 'categories', 'exchange_rates', 'cloud_backups'].map(t => (
+            <button
+              key={t}
+              className={`pill ${activeTab === t ? 'active' : ''}`}
+              onClick={(e) => handleSettingsTabSelect(t, e)}
+            >
+              {t.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+            </button>
+          ))}
+        </div>
       </div>
 
       {activeTab === 'general' && (
         <>
           <div className="settings-grid">
-            <div style={{ gridColumn: 'span 2', padding: '14px 18px', background: 'rgba(30, 41, 59, 0.5)', borderRadius: '10px', border: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <strong style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f8fafc', fontSize: '14px' }}>
+            <div className="privacy-setting-box">
+              <div className="privacy-info">
+                <strong className="privacy-title">
                   {settings.privacy_mode ? <EyeOffIcon size={16} color="#f87171" /> : <EyeIcon size={16} color="#14b8a6" />}
                   Privacy Mode
                 </strong>
-                <span style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                <span className="privacy-desc">
                   Mask financial balances, net worth, and transaction amounts with ••••••
                 </span>
               </div>
@@ -2486,17 +2602,17 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                 <span>{settings.privacy_mode ? 'Masked' : 'Visible'}</span>
               </button>
             </div>
-            <label>Currency
+            <label className="settings-field-label">Currency
               <select value={settings.currency || 'INR'} onChange={e => setSettings({ ...settings, currency: e.target.value })}>
                 {Object.keys(CURRENCIES).map(c => <option key={c} value={c}>{c} ({CURRENCIES[c]})</option>)}
               </select>
             </label>
-            <label>Date Format
+            <label className="settings-field-label">Date Format
               <select value={settings.date_format || DATE_FORMATS[0]} onChange={e => setSettings({ ...settings, date_format: e.target.value })}>
                 {DATE_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             </label>
-            <label style={{ gridColumn: 'span 2' }}>Server / API URL (For Android Mobile App & Remote Sync)
+            <label className="settings-field-label server-url-label" style={{ gridColumn: 'span 2' }}>Server / API URL (For Android Mobile App & Remote Sync)
               <input
                 type="text"
                 placeholder="e.g. http://192.168.1.5:3001 or https://your-server.com (Leave blank for local desktop)"
@@ -2507,22 +2623,22 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                   else localStorage.removeItem('server_url');
                 }}
               />
-              <small style={{ color: '#64748b', marginTop: '4px', display: 'block' }}>
+              <small className="settings-field-note">
                 On your Android phone, enter your PC's IP or cloud server URL here so your phone syncs with this system.
               </small>
             </label>
           </div>
           
-          <div className="app-info-section" style={{ marginTop: '40px', padding: '25px', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>
+          <div className="app-info-section about-networth-card">
+            <h3 className="about-networth-title">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
               About NetWorth Tracker
             </h3>
             
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
+            <div className="about-grid">
               <div>
-                <h4 style={{ color: '#94a3b8', marginBottom: '10px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Core Features</h4>
-                <ul style={{ paddingLeft: '20px', margin: 0, color: '#e2e8f0', lineHeight: '1.6', fontSize: '15px' }}>
+                <h4 className="about-section-heading">Core Features</h4>
+                <ul className="about-feature-list">
                   <li>Comprehensive Dashboard & Net Worth Tracking</li>
                   <li>Multi-Currency Asset & Liability Management</li>
                   <li>Monthly Cashflow & Budget Analysis</li>
@@ -2534,49 +2650,50 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
               </div>
               
               <div>
-                <h4 style={{ color: '#94a3b8', marginBottom: '10px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message from the Developer</h4>
-                <div style={{ padding: '15px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', borderLeft: '4px solid #10b981', color: '#e2e8f0', fontStyle: 'italic', lineHeight: '1.6', fontSize: '15px' }}>
+                <h4 className="about-section-heading">Message from the Developer</h4>
+                <div className="about-dev-quote">
                   "Thank you for using NetWorth Tracker! This tool was built with privacy and financial empowerment in mind. Your financial data stays 100% locally on your machine. I hope this application helps you take full control of your financial journey and achieve your goals. Happy tracking!"
                 </div>
               </div>
             </div>
             
-            <div style={{ marginTop: '25px', paddingTop: '15px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
-              <div style={{ color: '#64748b', fontSize: '13px' }}>
+            <div className="about-footer">
+              <div className="about-version-text">
                 Version 2.4.2 • Built with ❤️
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {updateStatus?.status === 'downloaded' && (
                   <button 
-                    style={{ background: '#10b981', color: '#fff', fontSize: '13px', padding: '6px 14px', borderRadius: '6px', fontWeight: 'bold' }}
+                    className="cloud-btn primary"
+                    style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '6px 14px', borderRadius: '8px', fontWeight: 'bold' }}
                     onClick={() => window.electronAPI?.restartAndInstall()}
                   >
                     Update Ready! Restart Now
                   </button>
                 )}
                 {updateStatus?.status === 'downloading' && (
-                  <span style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 'bold' }}>
+                  <span style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>
                     Downloading update ({updateStatus.percent || 0}%)...
                   </span>
                 )}
                 {updateStatus?.status === 'available' && (
-                  <span style={{ color: '#f59e0b', fontSize: '13px', fontWeight: 'bold' }}>
+                  <span style={{ color: '#f59e0b', fontSize: '12px', fontWeight: 'bold' }}>
                     New update found (v{updateStatus.version})! Downloading...
                   </span>
                 )}
                 {updateStatus?.status === 'latest' && (
-                  <span style={{ color: '#10b981', fontSize: '13px', fontWeight: 'bold' }}>
+                  <span style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold' }}>
                     ✓ You are on the latest version
                   </span>
                 )}
                 {updateStatus?.status === 'error' && (
-                  <span style={{ color: '#ef4444', fontSize: '13px' }}>
+                  <span style={{ color: '#ef4444', fontSize: '12px' }}>
                     Check failed: {updateStatus.error || 'Server error'}
                   </span>
                 )}
                 <button 
-                  className="secondary" 
-                  style={{ fontSize: '13px', padding: '6px 12px' }}
+                  className="secondary about-check-btn" 
+                  style={{ fontSize: '12px', padding: '6px 12px', height: '32px', minHeight: '32px' }}
                   disabled={checkingUpdate || updateStatus?.status === 'downloading'}
                   onClick={async () => {
                     if (!window.electronAPI?.checkForUpdates) {
@@ -2603,13 +2720,20 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       )}
 
       {activeTab === 'cloud_backups' && (
-        <div className="settings-grid" style={{ gridTemplateColumns: '1fr', gap: '20px' }}>
-          <h3>Cloud Integrations</h3>
-          <p className="muted">Connect your Google Drive or Dropbox to safely backup your database.</p>
+        <div className="settings-cloud-panel">
+          <div className="settings-section-head">
+            <h3>Cloud Integrations</h3>
+            <p className="muted">Connect your Google Drive or Dropbox to safely backup your database.</p>
+          </div>
           
-          <div className="card" style={{ padding: '20px' }}>
-            <h4>Google Drive</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '10px' }}>
+          <div className="cloud-provider-card">
+            <div className="cloud-card-header">
+              <h4 className="cloud-provider-title">Google Drive</h4>
+              {settings.gdrive_refresh_token && (
+                <span className="cloud-status-badge connected">✓ Connected</span>
+              )}
+            </div>
+            <div className="cloud-inputs-grid">
               <label>Client ID
                 <input type="text" value={settings.gdrive_client_id || ''} onChange={e => setSettings({ ...settings, gdrive_client_id: e.target.value })} placeholder="Enter Google Client ID" />
               </label>
@@ -2617,20 +2741,20 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                 <input type="password" value={settings.gdrive_client_secret || ''} onChange={e => setSettings({ ...settings, gdrive_client_secret: e.target.value })} placeholder="Enter Google Client Secret" />
               </label>
             </div>
-            <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <button className="secondary" onClick={async () => {
-                await saveSettings();
-                const res = await api('/backup/auth/google');
-                if (res.url) window.open(res.url, '_blank');
-              }}>Connect Google Drive</button>
-              {settings.gdrive_refresh_token && (
+            <div className="cloud-actions-row">
+              {!settings.gdrive_refresh_token ? (
+                <button className="cloud-btn secondary" onClick={async () => {
+                  await saveSettings();
+                  const res = await api('/backup/auth/google');
+                  if (res.url) window.open(res.url, '_blank');
+                }}>Connect Google Drive</button>
+              ) : (
                 <>
-                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Connected</span>
-                  <button onClick={async () => {
+                  <button className="cloud-btn primary" onClick={async () => {
                     const res = await api('/backup/upload/google', { method: 'POST' });
                     if (res.success) alert('Backup successful! Database backed up to Google Drive.');
                   }}>Backup Now</button>
-                  <button className="secondary" onClick={async () => {
+                  <button className="cloud-btn secondary" onClick={async () => {
                     if (window.confirm('Restore latest backup from Google Drive? This will safely snapshot your current database and replace it with the latest cloud backup.')) {
                       try {
                         const res = await api('/backup/restore/google', { method: 'POST' });
@@ -2643,18 +2767,28 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                       }
                     }
                   }}>Restore Latest</button>
-                  <button className="danger" onClick={async () => {
+                  <button className="cloud-btn danger" onClick={async () => {
                     await api('/backup/disconnect/google', { method: 'POST' });
                     setSettings({ ...settings, gdrive_refresh_token: null });
                   }}>Disconnect</button>
+                  <button className="cloud-btn secondary" onClick={async () => {
+                    await saveSettings();
+                    const res = await api('/backup/auth/google');
+                    if (res.url) window.open(res.url, '_blank');
+                  }}>Reconnect</button>
                 </>
               )}
             </div>
           </div>
 
-          <div className="card" style={{ padding: '20px' }}>
-            <h4>Dropbox</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '10px' }}>
+          <div className="cloud-provider-card">
+            <div className="cloud-card-header">
+              <h4 className="cloud-provider-title">Dropbox</h4>
+              {settings.dropbox_refresh_token && (
+                <span className="cloud-status-badge connected">✓ Connected</span>
+              )}
+            </div>
+            <div className="cloud-inputs-grid">
               <label>Client ID
                 <input type="text" value={settings.dropbox_client_id || ''} onChange={e => setSettings({ ...settings, dropbox_client_id: e.target.value })} placeholder="Enter Dropbox Client ID" />
               </label>
@@ -2662,20 +2796,20 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                 <input type="password" value={settings.dropbox_client_secret || ''} onChange={e => setSettings({ ...settings, dropbox_client_secret: e.target.value })} placeholder="Enter Dropbox Client Secret" />
               </label>
             </div>
-            <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <button className="secondary" onClick={async () => {
-                await saveSettings();
-                const res = await api('/backup/auth/dropbox');
-                if (res.url) window.open(res.url, '_blank');
-              }}>Connect Dropbox</button>
-              {settings.dropbox_refresh_token && (
+            <div className="cloud-actions-row">
+              {!settings.dropbox_refresh_token ? (
+                <button className="cloud-btn secondary" onClick={async () => {
+                  await saveSettings();
+                  const res = await api('/backup/auth/dropbox');
+                  if (res.url) window.open(res.url, '_blank');
+                }}>Connect Dropbox</button>
+              ) : (
                 <>
-                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Connected</span>
-                  <button onClick={async () => {
+                  <button className="cloud-btn primary" onClick={async () => {
                     const res = await api('/backup/upload/dropbox', { method: 'POST' });
                     if (res.success) alert('Backup successful! Path: ' + res.path);
                   }}>Backup Now</button>
-                  <button className="secondary" onClick={async () => {
+                  <button className="cloud-btn secondary" onClick={async () => {
                     if (window.confirm('Restore latest backup from Dropbox? This will safely snapshot your current database and replace it with the latest cloud backup.')) {
                       try {
                         const res = await api('/backup/restore/dropbox', { method: 'POST' });
@@ -2688,10 +2822,15 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                       }
                     }
                   }}>Restore Latest</button>
-                  <button className="danger" onClick={async () => {
+                  <button className="cloud-btn danger" onClick={async () => {
                     await api('/backup/disconnect/dropbox', { method: 'POST' });
                     setSettings({ ...settings, dropbox_refresh_token: null });
                   }}>Disconnect</button>
+                  <button className="cloud-btn secondary" onClick={async () => {
+                    await saveSettings();
+                    const res = await api('/backup/auth/dropbox');
+                    if (res.url) window.open(res.url, '_blank');
+                  }}>Reconnect</button>
                 </>
               )}
             </div>
@@ -2701,41 +2840,47 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
 
       {activeTab === 'categories' && (
         <div className="categories-manager">
-          <div className="cat-type-pills">
-            {[
-              { id: 'asset', label: 'Asset' },
-              { id: 'liability', label: 'Liability' },
-              { id: 'income', label: 'Income' },
-              { id: 'expense', label: 'Expense' },
-              { id: 'investment', label: 'Investment' },
-              { id: 'transfer', label: 'Transfer (Cashflow)' }
-            ].map(t => (
-              <button key={t.id} className={`pill ${catType === t.id ? 'active' : ''}`} onClick={() => setCatType(t.id)}>
-                {t.label}
-              </button>
-            ))}
+          <div className="cat-type-pills-wrapper">
+            <div ref={catTabsRef} className="cat-type-pills">
+              {[
+                { id: 'asset', label: 'Asset' },
+                { id: 'liability', label: 'Liability' },
+                { id: 'income', label: 'Income' },
+                { id: 'expense', label: 'Expense' },
+                { id: 'investment', label: 'Investment' },
+                { id: 'transfer', label: 'Transfer (Cashflow)' }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  className={`pill ${catType === t.id ? 'active' : ''}`}
+                  onClick={(e) => handleCatTypeSelect(t.id, e)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="cat-list">
             {(categories[catType] || []).map((cat, i) => (
               <div key={i} className="cat-row">
                 <span>{cat}</span>
-                <button className="danger" onClick={() => removeCategory(catType, i)}>Remove</button>
+                <button className="danger cat-remove-btn" onClick={() => removeCategory(catType, i)}>Remove</button>
               </div>
             ))}
           </div>
 
           <div className="cat-add">
             <input placeholder={`New ${catType} category`} value={newCat} onChange={e => setNewCat(e.target.value)} />
-            <button onClick={addCategory}>Add</button>
+            <button className="cat-add-btn" onClick={addCategory}>Add</button>
           </div>
         </div>
       )}
 
       {activeTab === 'dashboard_layout' && (
         <div className="dashboard-layout-manager">
-          <p className="muted" style={{ marginBottom: '15px' }}>Arrange the order of widgets on your Dashboard. Use Up/Down arrows to reorder.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '400px' }}>
+          <p className="muted layout-desc">Arrange the order of widgets on your Dashboard. Use Up/Down arrows to reorder.</p>
+          <div className="layout-items-list">
             {(() => {
               const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart', 'recent_transactions'];
               let currentLayout = defaultLayout;
@@ -2753,11 +2898,11 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
               };
               
               return currentLayout.map((key, idx) => (
-                <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 15px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>
-                  <span style={{ textTransform: 'capitalize' }}>{key.replace('_', ' ')}</span>
-                  <div style={{ display: 'flex', gap: '5px' }}>
-                    <button className="secondary" disabled={idx === 0} onClick={() => move(idx, -1)} style={{ padding: '4px 8px' }}>↑</button>
-                    <button className="secondary" disabled={idx === currentLayout.length - 1} onClick={() => move(idx, 1)} style={{ padding: '4px 8px' }}>↓</button>
+                <div key={key} className="layout-item-card">
+                  <span className="layout-item-name">{key.replace('_', ' ')}</span>
+                  <div className="layout-item-actions">
+                    <button className="secondary layout-arrow-btn" disabled={idx === 0} onClick={() => move(idx, -1)}>↑</button>
+                    <button className="secondary layout-arrow-btn" disabled={idx === currentLayout.length - 1} onClick={() => move(idx, 1)}>↓</button>
                   </div>
                 </div>
               ));
@@ -2767,22 +2912,21 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
       )}
 
       {activeTab === 'exchange_rates' && (
-        <div className="settings-grid" style={{ gridTemplateColumns: '1fr' }}>
-          <label>Exchange Rates (JSON)
-            <p className="muted" style={{ marginBottom: '8px' }}>
+        <div className="settings-exchange-panel">
+          <label className="settings-field-label">Exchange Rates (JSON)
+            <p className="muted exchange-rates-desc">
               Define manual exchange rates against your Base Currency ({settings.currency}). 
-              <br/>Example: if Base is USD and you own INR assets: <code>{`{"INR": 0.012}`}</code>
+              <br/>Example: if Base is USD and you own INR assets: <code className="exchange-code-badge">{`{"INR": 0.012}`}</code>
             </p>
             <textarea 
               rows={5}
+              className="exchange-rates-textarea"
               value={settings.exchange_rates || '{}'} 
               onChange={e => setSettings({ ...settings, exchange_rates: e.target.value })}
-              style={{ fontFamily: 'monospace' }}
             />
             <button 
               type="button" 
-              className="secondary" 
-              style={{ marginTop: '10px' }}
+              className="secondary exchange-rates-fetch-btn"
               onClick={fetchLiveRates}
               disabled={fetchingRates}
             >
@@ -2976,6 +3120,7 @@ function PortfolioTracker({ settings, categories }) {
     return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const tableWrapRef = useRef(null);
 
   const availableCategories = useMemo(() => {
     const cats = new Set();
@@ -3196,8 +3341,14 @@ function PortfolioTracker({ settings, categories }) {
             }
             setCurrentPage(1);
           }}
+          onScrollLeft={() => tableWrapRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+          onScrollRight={() => tableWrapRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
         />
-        <div style={{ overflowX: 'auto' }}>
+        <TableScrollHintBar
+          onScrollLeft={() => tableWrapRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+          onScrollRight={() => tableWrapRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
+        />
+        <div ref={tableWrapRef} style={{ overflowX: 'auto', scrollBehavior: 'smooth' }}>
           <table className="data-table" style={{ margin: 0, width: '100%' }}>
             <thead>
               <tr>
@@ -3575,8 +3726,8 @@ function Goals({ settings }) {
                   {assets.map(a => <option key={a.id} value={a.id}>{a.name} ({money(a.current_value || 0, settings)})</option>)}
                 </select>
               </label>
-              <div className="modal-actions" style={{ marginTop: '10px' }}>
-                <button type="button" onClick={() => setForm(null)}>Cancel</button>
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setForm(null)}>Cancel</button>
                 <button type="submit" className="primary">Save</button>
               </div>
             </form>
@@ -3592,8 +3743,8 @@ function Goals({ settings }) {
               <label>Amount<input required type="number" step="0.01" value={contribForm.amount} onChange={e => setContribForm({ ...contribForm, amount: e.target.value })} /></label>
               <label>Date<input type="date" value={contribForm.date || ''} onChange={e => setContribForm({ ...contribForm, date: e.target.value })} /></label>
               <label>Notes<input value={contribForm.notes || ''} onChange={e => setContribForm({ ...contribForm, notes: e.target.value })} /></label>
-              <div className="modal-actions" style={{ marginTop: '10px' }}>
-                <button type="button" onClick={() => setContribForm(null)}>Cancel</button>
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setContribForm(null)}>Cancel</button>
                 <button type="submit" className="primary">Add</button>
               </div>
             </form>
@@ -3615,6 +3766,7 @@ function Subscriptions({ settings, categories }) {
     return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const tableWrapRef = useRef(null);
 
   async function load() {
     setSubs(await api('/subscriptions'));
@@ -3681,14 +3833,21 @@ function Subscriptions({ settings, categories }) {
       <div className="overview-head">
         <div>
           <h1>Subscriptions</h1>
-          <p>Total Monthly Fixed Costs: <span className="bad">{money(monthlyCost, settings)}</span></p>
+          <p className="page-subtitle">
+            <span className="long-label">Total Monthly Fixed Costs: </span>
+            <span className="short-label">Monthly: </span>
+            <span className="bad" style={{ fontWeight: 700 }}>{money(monthlyCost, settings)}</span>
+          </p>
         </div>
-        <button onClick={() => setForm({ name: '', amount: '', category: categories.expense?.[0] || '', frequency: 'monthly', next_due_date: new Date().toISOString().split('T')[0] })}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <button
+          className="header-action-btn"
+          onClick={() => setForm({ name: '', amount: '', category: categories.expense?.[0] || '', frequency: 'monthly', next_due_date: new Date().toISOString().split('T')[0] })}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          New Subscription
+          <span>New Subscription</span>
         </button>
       </div>
 
@@ -3709,8 +3868,14 @@ function Subscriptions({ settings, categories }) {
             }
             setCurrentPage(1);
           }}
+          onScrollLeft={() => tableWrapRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+          onScrollRight={() => tableWrapRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
         />
-        <div style={{ overflowX: 'auto' }}>
+        <TableScrollHintBar
+          onScrollLeft={() => tableWrapRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+          onScrollRight={() => tableWrapRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
+        />
+        <div ref={tableWrapRef} style={{ overflowX: 'auto', scrollBehavior: 'smooth' }}>
           <table>
             <thead>
               <tr>
@@ -3790,8 +3955,8 @@ function Subscriptions({ settings, categories }) {
               </label>
               <label>Next Due Date<input type="date" required value={form.next_due_date} onChange={e => setForm({ ...form, next_due_date: e.target.value })} /></label>
               
-              <div className="modal-actions" style={{ marginTop: '10px' }}>
-                <button type="button" onClick={() => setForm(null)}>Cancel</button>
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setForm(null)}>Cancel</button>
                 <button type="submit" className="primary">Save</button>
               </div>
             </form>
@@ -3802,111 +3967,958 @@ function Subscriptions({ settings, categories }) {
   );
 }
 
-function Projections({ settings }) {
-  const [netWorth, setNetWorth] = useState(0);
-  const [monthlySavings, setMonthlySavings] = useState(1000);
-  const [monthlyExpenses, setMonthlyExpenses] = useState(4000);
+function ForecastManager({ settings }) {
+  const [subTab, setSubTab] = useState('forecast_trajectory'); // 'forecast_trajectory' | 'target_calculator' | 'retirement_corpus'
+  const tabsContainerRef = useRef(null);
+
+  // Auto-scroll active tab pill into center view smoothly on mobile
+  useEffect(() => {
+    if (tabsContainerRef.current) {
+      const activeBtn = tabsContainerRef.current.querySelector('.forecast-tab-btn.active');
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [subTab]);
   
-  const [roi, setRoi] = useState(7);
-  const [inflation, setInflation] = useState(2);
-  const [withdrawalRate, setWithdrawalRate] = useState(4);
+  // Real database balances
+  const [loading, setLoading] = useState(true);
+  const [netWorth, setNetWorth] = useState(0);
+  const [totalAssets, setTotalAssets] = useState(0);
+  const [totalLiabilities, setTotalLiabilities] = useState(0);
+  const [monthlySavings, setMonthlySavings] = useState(25000);
+  const [monthlyExpenses, setMonthlyExpenses] = useState(50000);
+  
+  // Tab 1: Net Worth Forecast State
+  const [forecastHorizon, setForecastHorizon] = useState(24); // months: 12, 24, 36, 60
+  const [annualRoi, setAnnualRoi] = useState(12.0); // % expected return
+  const [isCustomStartNw, setIsCustomStartNw] = useState(false);
+  const [customStartNw, setCustomStartNw] = useState(0);
+  
+  // Tab 2: Target Goal Calculator State
+  const [targetAmount, setTargetAmount] = useState(10000000); // default ₹1 Cr
+  const [targetYears, setTargetYears] = useState(2); // 1, 2, 3, 5
+  const [targetRoi, setTargetRoi] = useState(12.0); // % CAGR
+  const [currentContribution, setCurrentContribution] = useState(25000);
+
+  // Tab 3: Retirement Corpus Planner State
   const [currentAge, setCurrentAge] = useState(30);
-  const [targetAge, setTargetAge] = useState(60);
+  const [retirementAge, setRetirementAge] = useState(58);
+  const [lifeExpectancy, setLifeExpectancy] = useState(85);
+  const [retMonthlyExpense, setRetMonthlyExpense] = useState(50000);
+  const [inflationRate, setInflationRate] = useState(6.0); // % market inflation
+  const [preRetirementRoi, setPreRetirementRoi] = useState(12.0); // % equity accumulation
+  const [postRetirementRoi, setPostRetirementRoi] = useState(8.0); // % debt/safe return
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([api('/assets'), api('/liabilities'), api('/cashflow')])
       .then(([assets, liabilities, cashflow]) => {
-        const totalAssets = assets.reduce((sum, a) => sum + convertValue(a.current_value, a.currency, settings), 0);
-        const totalLiabilities = liabilities.reduce((sum, l) => sum + convertValue(l.current_value, l.currency, settings), 0);
-        setNetWorth(totalAssets - totalLiabilities);
-        
-        // Estimate average monthly expenses
-        const expenses = cashflow.filter(c => c.type === 'expense').reduce((s, c) => s + Number(c.amount || 0), 0);
-        if (expenses > 0) setMonthlyExpenses(Math.round(expenses / 12) || 4000);
-      });
+        const assetsList = Array.isArray(assets) ? assets : [];
+        const liabilitiesList = Array.isArray(liabilities) ? liabilities : [];
+        const cashflowList = Array.isArray(cashflow) ? cashflow : [];
+
+        const tAssets = assetsList.reduce((sum, a) => sum + convertValue(a.current_value, a.currency, settings), 0);
+        const tLiab = liabilitiesList.reduce((sum, l) => sum + convertValue(l.current_value, l.currency, settings), 0);
+        const currentNW = tAssets - tLiab;
+
+        setTotalAssets(tAssets);
+        setTotalLiabilities(tLiab);
+        setNetWorth(currentNW);
+        setCustomStartNw(currentNW);
+
+        // Estimate monthly cashflow
+        const incomeTotal = cashflowList.filter(c => c.type === 'income').reduce((s, c) => s + Number(c.amount || 0), 0);
+        const expenseTotal = cashflowList.filter(c => c.type === 'expense').reduce((s, c) => s + Number(c.amount || 0), 0);
+
+        // Calibrate sensible baselines: use actual if non-trivial, else realistic household defaults
+        const avgMonthlyExp = expenseTotal >= 5000 ? Math.round(expenseTotal / 12) : 50000;
+        const avgMonthlyInc = incomeTotal >= 5000 ? Math.round(incomeTotal / 12) : 75000;
+        const netMonthlySurplus = Math.max(0, avgMonthlyInc - avgMonthlyExp);
+
+        setMonthlyExpenses(avgMonthlyExp);
+        setRetMonthlyExpense(avgMonthlyExp);
+
+        if (netMonthlySurplus >= 5000) {
+          setMonthlySavings(netMonthlySurplus);
+          setCurrentContribution(netMonthlySurplus);
+        } else {
+          setMonthlySavings(25000);
+          setCurrentContribution(25000);
+        }
+
+        if (currentNW > 0) {
+          // Default target is a meaningful milestone higher than current NW
+          const nextTarget = Math.max(10000000, Math.ceil((currentNW * 1.5) / 1000000) * 1000000);
+          setTargetAmount(nextTarget);
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching data for Forecast:', err);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const data = [];
-  let currentBalance = netWorth;
-  const realRoi = (roi - inflation) / 100;
-  const monthlyRate = realRoi / 12;
+  // Base starting Net Worth
+  const startVal = isCustomStartNw ? Number(customStartNw || 0) : Number(netWorth || 0);
 
-  let fireAge = null;
-  const fireTarget = (monthlyExpenses * 12) / (withdrawalRate / 100);
+  // Helper to format add percentage nicely
+  const formatAddPercentage = (pct) => {
+    if (!isFinite(pct)) return '+100%';
+    if (pct > 9999) return `+${Math.round(pct).toLocaleString()}%`;
+    return `+${pct.toFixed(1)}%`;
+  };
 
-  for (let age = currentAge; age <= Math.max(targetAge, currentAge + 10); age++) {
-    data.push({
-      age,
-      Balance: Math.round(currentBalance),
-      Target: Math.round(fireTarget)
-    });
-    if (!fireAge && currentBalance >= fireTarget) {
-      fireAge = age;
+  // --- TAB 1: 1 & 2 Year Forecast Calculations ---
+  const r_mo_1_2 = (Number(annualRoi || 0) / 100) / 12;
+  const pmt_1_2 = Number(monthlySavings || 0);
+
+  // 1 Year Milestone (Month 12)
+  const nw1Yr = Math.round(startVal * Math.pow(1 + r_mo_1_2, 12) + (r_mo_1_2 > 0 ? pmt_1_2 * ((Math.pow(1 + r_mo_1_2, 12) - 1) / r_mo_1_2) : pmt_1_2 * 12));
+  const gain1Yr = nw1Yr - startVal;
+  const pct1Yr = startVal > 0 ? (gain1Yr / startVal) * 100 : 0;
+
+  // 2 Year Milestone (Month 24)
+  const nw2Yr = Math.round(startVal * Math.pow(1 + r_mo_1_2, 24) + (r_mo_1_2 > 0 ? pmt_1_2 * ((Math.pow(1 + r_mo_1_2, 24) - 1) / r_mo_1_2) : pmt_1_2 * 24));
+  const gain2Yr = nw2Yr - startVal;
+  const pct2Yr = startVal > 0 ? (gain2Yr / startVal) * 100 : 0;
+
+  // Trajectory Dataset for AreaChart
+  const trajectoryData = useMemo(() => {
+    const points = [];
+    for (let m = 0; m <= forecastHorizon; m++) {
+      const fvStart = startVal * Math.pow(1 + r_mo_1_2, m);
+      const fvContrib = m > 0 ? (r_mo_1_2 > 0 ? pmt_1_2 * ((Math.pow(1 + r_mo_1_2, m) - 1) / r_mo_1_2) : pmt_1_2 * m) : 0;
+      const totalNw = fvStart + fvContrib;
+      const investedPrincipal = startVal + (pmt_1_2 * m);
+      const wealthGains = Math.max(0, totalNw - investedPrincipal);
+
+      const label = m === 0 ? 'Today' : (m % 12 === 0 ? `Yr ${m / 12}` : `Mo ${m}`);
+      points.push({
+        month: m,
+        label,
+        netWorth: Math.round(totalNw),
+        invested: Math.round(investedPrincipal),
+        wealthGains: Math.round(wealthGains)
+      });
     }
-    for (let m = 0; m < 12; m++) {
-      currentBalance = currentBalance * (1 + monthlyRate) + Number(monthlySavings);
+    return points;
+  }, [startVal, r_mo_1_2, pmt_1_2, forecastHorizon]);
+
+  const finalPoint = trajectoryData[trajectoryData.length - 1] || { netWorth: 0, invested: 0, wealthGains: 0 };
+  const totalGrowthVal = finalPoint.netWorth - startVal;
+  const totalGrowthPct = startVal > 0 ? (totalGrowthVal / startVal) * 100 : 0;
+
+  // --- TAB 2: Target Goal Calculator Calculations ---
+  const targetMonths = targetYears * 12;
+  const targetR_mo = (Number(targetRoi || 0) / 100) / 12;
+  const fvStartForTarget = startVal * Math.pow(1 + targetR_mo, targetMonths);
+  const targetGap = Math.max(0, targetAmount - fvStartForTarget);
+  
+  const fvifa = targetR_mo > 0 ? ((Math.pow(1 + targetR_mo, targetMonths) - 1) / targetR_mo) : targetMonths;
+  const requiredMonthlyPmt = Math.round(fvifa > 0 ? targetGap / fvifa : 0);
+  
+  const currentPmtNum = Number(currentContribution || 0);
+  const deltaMonthlyPmt = requiredMonthlyPmt - currentPmtNum;
+  const addPercentage = currentPmtNum > 0 ? ((requiredMonthlyPmt - currentPmtNum) / currentPmtNum) * 100 : 100;
+  
+  const projectedWithCurrent = Math.round(fvStartForTarget + (targetR_mo > 0 ? currentPmtNum * ((Math.pow(1 + targetR_mo, targetMonths) - 1) / targetR_mo) : currentPmtNum * targetMonths));
+  const surplus = Math.max(0, projectedWithCurrent - targetAmount);
+
+  // Solve for required CAGR if monthly contribution is fixed
+  const requiredCagrFixedPmt = useMemo(() => {
+    if (startVal >= targetAmount) return 0;
+    let low = 0.0;
+    let high = 150.0;
+    for (let i = 0; i < 40; i++) {
+      const mid = (low + high) / 2;
+      const r_mo = (mid / 100) / 12;
+      const fvStart = startVal * Math.pow(1 + r_mo, targetMonths);
+      const fvContrib = r_mo > 0 ? currentPmtNum * ((Math.pow(1 + r_mo, targetMonths) - 1) / r_mo) : currentPmtNum * targetMonths;
+      if (fvStart + fvContrib < targetAmount) {
+        low = mid;
+      } else {
+        high = mid;
+      }
     }
-  }
+    return Math.round(low * 10) / 10;
+  }, [startVal, targetAmount, currentPmtNum, targetMonths]);
+
+  // Dual Trajectory Chart Data for Target
+  const targetChartData = useMemo(() => {
+    const pts = [];
+    for (let m = 0; m <= targetMonths; m++) {
+      const curFvStart = startVal * Math.pow(1 + targetR_mo, m);
+      const curFvPmt = m > 0 ? (targetR_mo > 0 ? currentPmtNum * ((Math.pow(1 + targetR_mo, m) - 1) / targetR_mo) : currentPmtNum * m) : 0;
+      const curTotal = Math.round(curFvStart + curFvPmt);
+
+      const reqFvPmt = m > 0 ? (targetR_mo > 0 ? requiredMonthlyPmt * ((Math.pow(1 + targetR_mo, m) - 1) / targetR_mo) : requiredMonthlyPmt * m) : 0;
+      const reqTotal = Math.round(curFvStart + reqFvPmt);
+
+      const label = m === 0 ? 'Start' : (m % 12 === 0 ? `Yr ${m / 12}` : `Mo ${m}`);
+      pts.push({
+        month: m,
+        label,
+        currentPath: curTotal,
+        targetPath: reqTotal,
+        goalTarget: targetAmount
+      });
+    }
+    return pts;
+  }, [startVal, targetMonths, targetR_mo, currentPmtNum, requiredMonthlyPmt, targetAmount]);
+
+  // --- TAB 3: Retirement Corpus Planner Calculations ---
+  const yearsToRetire = Math.max(1, retirementAge - currentAge);
+  const yearsInRetire = Math.max(1, lifeExpectancy - retirementAge);
+  const inflRateNum = Number(inflationRate || 0) / 100;
+  const preRoiNum = Number(preRetirementRoi || 0) / 100;
+  const postRoiNum = Number(postRetirementRoi || 0) / 100;
+
+  // Inflated Monthly Expense at retirement
+  const futureMonthlyExpense = Math.round(retMonthlyExpense * Math.pow(1 + inflRateNum, yearsToRetire));
+  const firstYearRetirementAnnualExpense = futureMonthlyExpense * 12;
+
+  // Real post-retirement rate of return
+  const realPostRoi = ((1 + postRoiNum) / (1 + inflRateNum)) - 1;
+
+  // Target Retirement Corpus Needed
+  const corpusTarget = Math.round(
+    Math.abs(realPostRoi) > 0.0001
+      ? firstYearRetirementAnnualExpense * ((1 - Math.pow(1 + realPostRoi, -yearsInRetire)) / realPostRoi)
+      : firstYearRetirementAnnualExpense * yearsInRetire
+  );
+
+  // Future Value of Current Net Worth at Retirement Age
+  const fvStartNwAtRetire = Math.round(startVal * Math.pow(1 + preRoiNum, yearsToRetire));
+
+  // Shortfall / Gap
+  const corpusGap = Math.max(0, corpusTarget - fvStartNwAtRetire);
+
+  // Required Monthly SIP until Retirement Age
+  const totalWorkMonths = yearsToRetire * 12;
+  const preRoiMonthly = preRoiNum / 12;
+  const fvifaWork = preRoiMonthly > 0 ? ((Math.pow(1 + preRoiMonthly, totalWorkMonths) - 1) / preRoiMonthly) : totalWorkMonths;
+  const sipRequired = corpusGap > 0 && fvifaWork > 0 ? Math.round(corpusGap / fvifaWork) : 0;
+
+  // Retirement Readiness %
+  const readinessPct = corpusTarget > 0 ? Math.min(100, Math.round((fvStartNwAtRetire / corpusTarget) * 100)) : 100;
+
+  // Lifecycle Accumulation & Drawdown Data
+  const retirementLifecycleData = useMemo(() => {
+    const pts = [];
+    let curBal = startVal;
+    const monthlySip = sipRequired;
+    const moPreRoi = preRoiNum / 12;
+
+    for (let age = currentAge; age <= retirementAge; age++) {
+      pts.push({
+        age,
+        label: `Age ${age}`,
+        wealth: Math.round(curBal),
+        targetCorpus: corpusTarget
+      });
+      for (let m = 0; m < 12; m++) {
+        curBal = curBal * (1 + moPreRoi) + monthlySip;
+      }
+    }
+
+    let retCorpusBal = Math.max(curBal, corpusTarget);
+    let curAnnualExpense = firstYearRetirementAnnualExpense;
+
+    for (let age = retirementAge + 1; age <= lifeExpectancy; age++) {
+      retCorpusBal = (retCorpusBal * (1 + postRoiNum)) - curAnnualExpense;
+      curAnnualExpense = curAnnualExpense * (1 + inflRateNum);
+      pts.push({
+        age,
+        label: `Age ${age}`,
+        wealth: Math.max(0, Math.round(retCorpusBal)),
+        targetCorpus: corpusTarget
+      });
+    }
+    return pts;
+  }, [currentAge, retirementAge, lifeExpectancy, startVal, preRoiNum, postRoiNum, inflRateNum, sipRequired, corpusTarget, firstYearRetirementAnnualExpense]);
 
   return (
-    <section className="page">
+    <section className="page forecast-page">
       <div className="overview-head">
         <div>
-          <h1>FIRE Projections</h1>
-          <p>Plan your Financial Independence and Early Retirement.</p>
+          <h1>Forecast & Projections</h1>
+          <p>Simulate net worth trajectories, calculate required savings boosts to hit targets, and plan inflation-adjusted retirement.</p>
         </div>
       </div>
-      
-      <div className="budget-layout">
-        <Chart title="Wealth Growth Projection" height={400}>
-          <AreaChart data={data}>
-            <defs>
-              <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="age" tickFormatter={a => `Age ${a}`} />
-            <YAxis tickFormatter={v => money(v, settings)} width={80} />
-            <Tooltip content={<PremiumTooltip settings={settings} />} />
-            <Area type="monotone" dataKey="Balance" stroke="#10b981" fillOpacity={1} fill="url(#colorBalance)" />
-            <Line type="dashed" dataKey="Target" stroke="#f43f5e" strokeWidth={2} dot={false} strokeDasharray="5 5" />
-          </AreaChart>
-        </Chart>
-        
-        <div className="budget-breakdown card">
-          <h3>FIRE Metrics</h3>
-          <div className="budget-metrics" style={{ gridTemplateColumns: '1fr', marginTop: '14px' }}>
-            <div className="mini-stat">
-              <label>FIRE Target Number</label>
-              <span className="good">{money(fireTarget, settings)}</span>
-            </div>
-            <div className="mini-stat">
-              <label>Projected Net Worth at {targetAge}</label>
-              <span>{money(data.find(d => d.age === targetAge)?.Balance || 0, settings)}</span>
-            </div>
-            <div className="mini-stat" style={{ background: fireAge ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)' }}>
-              <label>You can retire at age</label>
-              <span style={{ color: fireAge ? '#10b981' : '#f43f5e' }}>{fireAge ? fireAge : '80+'}</span>
-            </div>
-          </div>
-          
-          <h3 style={{ marginTop: '24px', marginBottom: '14px' }}>Assumptions</h3>
-          <div style={{ display: 'grid', gap: '12px' }}>
-            <label style={{ display: 'grid' }}>Current Age <input type="number" value={currentAge} onChange={e => setCurrentAge(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Target Retirement Age <input type="number" value={targetAge} onChange={e => setTargetAge(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Monthly Savings <input type="number" value={monthlySavings} onChange={e => setMonthlySavings(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Monthly Expenses (in retirement) <input type="number" value={monthlyExpenses} onChange={e => setMonthlyExpenses(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Expected Annual Return (%) <input type="number" step="0.1" value={roi} onChange={e => setRoi(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Inflation Rate (%) <input type="number" step="0.1" value={inflation} onChange={e => setInflation(Number(e.target.value))} /></label>
-            <label style={{ display: 'grid' }}>Safe Withdrawal Rate (%) <input type="number" step="0.1" value={withdrawalRate} onChange={e => setWithdrawalRate(Number(e.target.value))} /></label>
-          </div>
+
+      {/* Main Tab Pills */}
+      <div className="forecast-tabs-wrapper">
+        <div className="forecast-tabs" ref={tabsContainerRef}>
+          <button
+            type="button"
+            className={`forecast-tab-btn ${subTab === 'forecast_trajectory' ? 'active' : ''}`}
+            onClick={() => setSubTab('forecast_trajectory')}
+          >
+            📈 1 & 2 Year Forecast
+          </button>
+          <button
+            type="button"
+            className={`forecast-tab-btn ${subTab === 'target_calculator' ? 'active' : ''}`}
+            onClick={() => setSubTab('target_calculator')}
+          >
+            🎯 Reach Target Goal
+          </button>
+          <button
+            type="button"
+            className={`forecast-tab-btn ${subTab === 'retirement_corpus' ? 'active' : ''}`}
+            onClick={() => setSubTab('retirement_corpus')}
+          >
+            🏖️ Retirement Corpus
+          </button>
         </div>
       </div>
+
+      {/* ==================== SUB-TAB 1: 1 & 2 YEAR FORECAST ==================== */}
+      {subTab === 'forecast_trajectory' && (
+        <div className="forecast-content">
+          {/* Top Milestone Summary Cards */}
+          <div className="forecast-metrics-grid">
+            <div className="card forecast-metric-card highlight-emerald">
+              <div className="forecast-metric-badge">1 YEAR MILESTONE</div>
+              <div className="forecast-metric-val">{money(nw1Yr, settings)}</div>
+              <div className="forecast-metric-change positive">
+                +{money(gain1Yr, settings)} (+{pct1Yr.toFixed(1)}%)
+              </div>
+              <div className="forecast-metric-sub">Projected Net Worth in Month 12</div>
+            </div>
+
+            <div className="card forecast-metric-card highlight-cyan">
+              <div className="forecast-metric-badge">2 YEAR MILESTONE</div>
+              <div className="forecast-metric-val">{money(nw2Yr, settings)}</div>
+              <div className="forecast-metric-change positive">
+                +{money(gain2Yr, settings)} (+{pct2Yr.toFixed(1)}%)
+              </div>
+              <div className="forecast-metric-sub">Projected Net Worth in Month 24</div>
+            </div>
+
+            <div className="card forecast-metric-card highlight-purple">
+              <div className="forecast-metric-badge">COMPOUND WEALTH</div>
+              <div className="forecast-metric-val">{money(finalPoint.wealthGains, settings)}</div>
+              <div className="forecast-metric-change accent">
+                Pure Returns Generated
+              </div>
+              <div className="forecast-metric-sub">Growth beyond your capital contributions</div>
+            </div>
+          </div>
+
+          <div className="forecast-layout-grid">
+            {/* Chart Area */}
+            <div className="forecast-chart-container">
+              <Chart title={`Wealth Trajectory (${forecastHorizon} Months / ${(forecastHorizon / 12).toFixed(0)} Years)`} height={340}>
+                <AreaChart data={trajectoryData}>
+                  <defs>
+                    <linearGradient id="colorNw" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="colorInvested" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="label" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis tickFormatter={v => money(v, settings)} width={85} stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const pt = payload[0].payload;
+                      return (
+                        <div className="chart-tooltip">
+                          <div className="tooltip-label">{pt.label} (Month {pt.month})</div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#10b981' }} />
+                            Projected Net Worth: <strong>{money(pt.netWorth, settings)}</strong>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#6366f1' }} />
+                            Capital Invested: <strong>{money(pt.invested, settings)}</strong>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#f59e0b' }} />
+                            Compound Wealth: <strong>{money(pt.wealthGains, settings)}</strong>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" dataKey="netWorth" name="Projected Net Worth" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorNw)" />
+                  <Area type="monotone" dataKey="invested" name="Invested Capital" stroke="#6366f1" strokeWidth={1.5} fillOpacity={1} fill="url(#colorInvested)" />
+                </AreaChart>
+              </Chart>
+
+              {/* Breakdown Row */}
+              <div className="forecast-breakdown-row">
+                <div className="forecast-breakdown-pill">
+                  <span>Starting Capital:</span>
+                  <strong>{money(startVal, settings)}</strong>
+                </div>
+                <div className="forecast-breakdown-pill">
+                  <span>New Contributions:</span>
+                  <strong>+{money(finalPoint.invested - startVal, settings)}</strong>
+                </div>
+                <div className="forecast-breakdown-pill highlight">
+                  <span>Compound Gain:</span>
+                  <strong className="positive">+{money(finalPoint.wealthGains, settings)}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Controls Card */}
+            <div className="card forecast-controls-card">
+              <h3>Simulation Controls</h3>
+              <p className="forecast-controls-hint">Adjust growth rate and monthly savings to project future wealth.</p>
+
+              {/* Horizon Selector */}
+              <div className="forecast-control-group">
+                <label>Projection Horizon</label>
+                <div className="forecast-horizon-pills">
+                  {[
+                    { m: 12, lbl: '1 Year (12 Mo)' },
+                    { m: 24, lbl: '2 Years (24 Mo)' },
+                    { m: 36, lbl: '3 Years (36 Mo)' },
+                    { m: 60, lbl: '5 Years (60 Mo)' }
+                  ].map(h => (
+                    <button
+                      key={h.m}
+                      type="button"
+                      className={`forecast-horizon-btn ${forecastHorizon === h.m ? 'active' : ''}`}
+                      onClick={() => setForecastHorizon(h.m)}
+                    >
+                      {h.lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annual Growth Rate Slider & Presets */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Expected Annual Return</label>
+                  <span className="forecast-value-badge">{annualRoi}% CAGR</span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="30"
+                  step="0.5"
+                  value={annualRoi}
+                  onChange={e => setAnnualRoi(Number(e.target.value))}
+                  className="forecast-slider"
+                />
+                <div className="forecast-preset-chips">
+                  {[
+                    { label: '7% (Debt/FD)', val: 7 },
+                    { label: '11% (Balanced)', val: 11 },
+                    { label: '15% (Equity)', val: 15 },
+                    { label: '18% (Aggressive)', val: 18 }
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      className={`forecast-chip ${annualRoi === p.val ? 'active' : ''}`}
+                      onClick={() => setAnnualRoi(p.val)}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Monthly Savings Input & Slider */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Monthly Contribution / Savings</label>
+                  <span className="forecast-value-badge">{money(monthlySavings, settings)}/mo</span>
+                </div>
+                <div className="forecast-input-inline">
+                  <input
+                    type="number"
+                    step="1000"
+                    value={monthlySavings}
+                    onChange={e => setMonthlySavings(Math.max(0, Number(e.target.value)))}
+                  />
+                  <div className="forecast-add-chips">
+                    <button type="button" onClick={() => setMonthlySavings(prev => prev + 5000)}>+5k</button>
+                    <button type="button" onClick={() => setMonthlySavings(prev => prev + 10000)}>+10k</button>
+                    <button type="button" onClick={() => setMonthlySavings(prev => prev + 25000)}>+25k</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Starting Net Worth Customizer */}
+              <div className="forecast-control-group forecast-startnw-box">
+                <div className="forecast-label-row">
+                  <label>Starting Net Worth</label>
+                  <button
+                    type="button"
+                    className="forecast-text-link"
+                    onClick={() => {
+                      setIsCustomStartNw(!isCustomStartNw);
+                      if (!isCustomStartNw) setCustomStartNw(netWorth);
+                    }}
+                  >
+                    {isCustomStartNw ? 'Reset to Actual NW' : 'Edit Starting NW'}
+                  </button>
+                </div>
+                {isCustomStartNw ? (
+                  <input
+                    type="number"
+                    step="10000"
+                    value={customStartNw}
+                    onChange={e => setCustomStartNw(Number(e.target.value))}
+                  />
+                ) : (
+                  <div className="forecast-base-nw-display">
+                    <strong>{money(netWorth, settings)}</strong>
+                    <span className="forecast-live-pill">Live Synced</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== SUB-TAB 2: TARGET GOAL CALCULATOR ==================== */}
+      {subTab === 'target_calculator' && (
+        <div className="forecast-content">
+          {/* Main Action Callout Card: What Need Add Percentage */}
+          <div className={`card forecast-callout-card ${deltaMonthlyPmt > 0 ? 'booster-needed' : 'goal-on-track'}`}>
+            <div className="forecast-callout-head">
+              <span className="forecast-callout-tag">
+                {deltaMonthlyPmt > 0 ? 'SAVINGS BOOST REQUIRED' : 'GOAL FULLY ON TRACK'}
+              </span>
+              <span className="forecast-callout-boost-badge">
+                {deltaMonthlyPmt > 0
+                  ? `${formatAddPercentage(addPercentage)} Boost Needed`
+                  : 'Zero Extra Savings Needed'}
+              </span>
+            </div>
+
+            <div className="forecast-callout-body">
+              {deltaMonthlyPmt > 0 ? (
+                <>
+                  <h2>
+                    Increase monthly savings by <span className="highlight-text">+{money(deltaMonthlyPmt, settings)}/mo</span> ({formatAddPercentage(addPercentage)})
+                  </h2>
+                  <p>
+                    To achieve your target of <strong>{money(targetAmount, settings)}</strong> in <strong>{targetYears} {targetYears === 1 ? 'Year' : 'Years'}</strong> at <strong>{targetRoi}%</strong> annual return, your monthly investment must increase from {money(currentContribution, settings)} to {money(requiredMonthlyPmt, settings)}.
+                  </p>
+                  <div className="forecast-callout-stats">
+                    <div className="forecast-callout-stat-col">
+                      <label>Current Monthly Savings</label>
+                      <span>{money(currentContribution, settings)}/mo</span>
+                    </div>
+                    <div className="forecast-callout-stat-arrow">➔</div>
+                    <div className="forecast-callout-stat-col required">
+                      <label>Required Monthly Savings</label>
+                      <strong>{money(requiredMonthlyPmt, settings)}/mo</strong>
+                    </div>
+                    <div className="forecast-callout-stat-col booster">
+                      <label>Extra Savings Needed</label>
+                      <strong className="positive">+{money(deltaMonthlyPmt, settings)}/mo ({formatAddPercentage(addPercentage)})</strong>
+                    </div>
+                  </div>
+                  <div className="forecast-cagr-alternative-tip">
+                    💡 <strong>Alternative Strategy:</strong> If you keep your monthly savings at {money(currentContribution, settings)}/mo, you would need to achieve an annual growth rate of <strong>{requiredCagrFixedPmt}% CAGR</strong>.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2>
+                    🎉 You are already on track to exceed <span className="highlight-text">{money(targetAmount, settings)}</span>!
+                  </h2>
+                  <p>
+                    With your current savings of <strong>{money(currentContribution, settings)}/mo</strong> and <strong>{targetRoi}%</strong> annual return, your net worth will grow to <strong>{money(projectedWithCurrent, settings)}</strong> in {targetYears} {targetYears === 1 ? 'Year' : 'Years'}, surpassing your goal by <strong>+{money(surplus, settings)}</strong>.
+                  </p>
+                  <div className="forecast-callout-stats">
+                    <div className="forecast-callout-stat-col">
+                      <label>Target Goal</label>
+                      <span>{money(targetAmount, settings)}</span>
+                    </div>
+                    <div className="forecast-callout-stat-arrow">➔</div>
+                    <div className="forecast-callout-stat-col required">
+                      <label>Projected Outcome</label>
+                      <strong className="positive">{money(projectedWithCurrent, settings)}</strong>
+                    </div>
+                    <div className="forecast-callout-stat-col booster">
+                      <label>Goal Surplus</label>
+                      <strong className="positive">+{money(surplus, settings)}</strong>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="forecast-layout-grid">
+            {/* Dual Trajectory Comparison Chart */}
+            <div className="forecast-chart-container">
+              <Chart title={`Target Trajectory vs. Current Trajectory (${targetYears} ${targetYears === 1 ? 'Year' : 'Years'})`} height={340}>
+                <LineChart data={targetChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="label" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis tickFormatter={v => money(v, settings)} width={85} stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const pt = payload[0].payload;
+                      return (
+                        <div className="chart-tooltip">
+                          <div className="tooltip-label">{pt.label} (Month {pt.month})</div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#10b981' }} />
+                            Target Path: <strong>{money(pt.targetPath, settings)}</strong>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#38bdf8' }} />
+                            Current Trajectory: <strong>{money(pt.currentPath, settings)}</strong>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#f43f5e' }} />
+                            Target Goal: <strong>{money(pt.goalTarget, settings)}</strong>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Line type="monotone" dataKey="targetPath" name="Target Required Path" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                  <Line type="monotone" dataKey="currentPath" name="Current Trajectory" stroke="#38bdf8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                  <Line type="monotone" dataKey="goalTarget" name="Target Goal" stroke="#f43f5e" strokeWidth={1.5} strokeDasharray="6 6" dot={false} />
+                </LineChart>
+              </Chart>
+            </div>
+
+            {/* Target Calculator Controls */}
+            <div className="card forecast-controls-card">
+              <h3>Target Parameters</h3>
+              <p className="forecast-controls-hint">Customize your desired net worth goal, timeframe, and expected returns.</p>
+
+              {/* Target Amount */}
+              <div className="forecast-control-group">
+                <label>Target Net Worth Amount</label>
+                <input
+                  type="number"
+                  step="500000"
+                  value={targetAmount}
+                  onChange={e => setTargetAmount(Math.max(100000, Number(e.target.value)))}
+                />
+                <div className="forecast-preset-chips">
+                  {[
+                    { lbl: '₹50 Lakh', val: 5000000 },
+                    { lbl: '₹1 Crore', val: 10000000 },
+                    { lbl: '₹2 Crore', val: 20000000 },
+                    { lbl: '₹5 Crore', val: 50000000 }
+                  ].map(c => (
+                    <button
+                      key={c.val}
+                      type="button"
+                      className={`forecast-chip ${targetAmount === c.val ? 'active' : ''}`}
+                      onClick={() => setTargetAmount(c.val)}
+                    >
+                      {c.lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Target Years */}
+              <div className="forecast-control-group">
+                <label>Target Timeframe</label>
+                <div className="forecast-horizon-pills">
+                  {[1, 2, 3, 5].map(yr => (
+                    <button
+                      key={yr}
+                      type="button"
+                      className={`forecast-horizon-btn ${targetYears === yr ? 'active' : ''}`}
+                      onClick={() => setTargetYears(yr)}
+                    >
+                      {yr} {yr === 1 ? 'Year' : 'Years'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Assumed Return Rate */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Assumed Growth Rate</label>
+                  <span className="forecast-value-badge">{targetRoi}% CAGR</span>
+                </div>
+                <input
+                  type="range"
+                  min="4"
+                  max="25"
+                  step="0.5"
+                  value={targetRoi}
+                  onChange={e => setTargetRoi(Number(e.target.value))}
+                  className="forecast-slider"
+                />
+              </div>
+
+              {/* Baseline Current Contribution */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Current Monthly Savings Rate</label>
+                  <span className="forecast-value-badge">{money(currentContribution, settings)}/mo</span>
+                </div>
+                <input
+                  type="number"
+                  step="1000"
+                  value={currentContribution}
+                  onChange={e => setCurrentContribution(Math.max(0, Number(e.target.value)))}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== SUB-TAB 3: RETIREMENT CORPUS PLANNER ==================== */}
+      {subTab === 'retirement_corpus' && (
+        <div className="forecast-content">
+          {/* Key Retirement Metrics */}
+          <div className="forecast-metrics-grid">
+            <div className="card forecast-metric-card highlight-emerald">
+              <div className="forecast-metric-badge">TARGET RETIREMENT CORPUS</div>
+              <div className="forecast-metric-val">{money(corpusTarget, settings)}</div>
+              <div className="forecast-metric-sub">
+                Inflation-adjusted nest egg at Age {retirementAge}
+              </div>
+            </div>
+
+            <div className="card forecast-metric-card highlight-cyan">
+              <div className="forecast-metric-badge">INFLATED MONTHLY EXPENSE</div>
+              <div className="forecast-metric-val">{money(futureMonthlyExpense, settings)}/mo</div>
+              <div className="forecast-metric-sub">
+                Compounded by {inflationRate}% inflation (today: {money(retMonthlyExpense, settings)})
+              </div>
+            </div>
+
+            <div className="card forecast-metric-card highlight-purple">
+              <div className="forecast-metric-badge">WEALTH AT RETIREMENT</div>
+              <div className="forecast-metric-val">{money(fvStartNwAtRetire, settings)}</div>
+              <div className="forecast-metric-sub">
+                Current Net Worth compounded at {preRetirementRoi}% ROI
+              </div>
+            </div>
+
+            <div className="card forecast-metric-card highlight-amber">
+              <div className="forecast-metric-badge">REQUIRED MONTHLY SIP</div>
+              <div className="forecast-metric-val">
+                {corpusGap > 0 ? `${money(sipRequired, settings)}/mo` : 'Fully Funded! 🎉'}
+              </div>
+              <div className="forecast-metric-sub">
+                {corpusGap > 0 ? `To close the ${money(corpusGap, settings)} retirement gap` : 'Zero extra SIP required'}
+              </div>
+            </div>
+          </div>
+
+          {/* Retirement Readiness Banner */}
+          <div className="card forecast-readiness-card">
+            <div className="forecast-readiness-head">
+              <div>
+                <h3>Retirement Readiness Score</h3>
+                <p>
+                  {readinessPct >= 100
+                    ? '🏆 Fully Financially Independent (FIRE): Your current Net Worth alone is projected to exceed the required retirement corpus!'
+                    : `⚡ ${readinessPct}% Funded: Invest ${money(sipRequired, settings)}/month over the next ${yearsToRetire} years to reach total financial independence.`}
+                </p>
+              </div>
+              <div className={`forecast-readiness-chip ${readinessPct >= 100 ? 'fire' : readinessPct >= 70 ? 'strong' : 'planning'}`}>
+                {readinessPct >= 100 ? '🔥 FIRE READY' : `${readinessPct}% ON TRACK`}
+              </div>
+            </div>
+            <div className="forecast-progress-track">
+              <div
+                className={`forecast-progress-bar ${readinessPct >= 100 ? 'bg-emerald' : readinessPct >= 70 ? 'bg-cyan' : 'bg-amber'}`}
+                style={{ width: `${Math.min(100, Math.max(5, readinessPct))}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="forecast-layout-grid">
+            {/* Retirement Lifecycle Chart */}
+            <div className="forecast-chart-container">
+              <Chart title={`Retirement Lifecycle: Accumulation & Sustainable Drawdown (Age ${currentAge} to ${lifeExpectancy})`} height={340}>
+                <AreaChart data={retirementLifecycleData}>
+                  <defs>
+                    <linearGradient id="colorLifecycle" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="age" stroke="#64748b" tickFormatter={a => `Age ${a}`} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis tickFormatter={v => money(v, settings)} width={85} stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const pt = payload[0].payload;
+                      const isPost = pt.age >= retirementAge;
+                      return (
+                        <div className="chart-tooltip">
+                          <div className="tooltip-label">{pt.label} ({isPost ? 'Retirement Phase' : 'Working Phase'})</div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#10b981' }} />
+                            Corpus Balance: <strong>{money(pt.wealth, settings)}</strong>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ background: '#f59e0b' }} />
+                            Target Corpus: <strong>{money(pt.targetCorpus, settings)}</strong>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" dataKey="wealth" name="Corpus Wealth" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorLifecycle)" />
+                  <Line type="dashed" dataKey="targetCorpus" name="Target Corpus" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
+                </AreaChart>
+              </Chart>
+            </div>
+
+            {/* Retirement Assumptions Controls */}
+            <div className="card forecast-controls-card">
+              <h3>Market & Lifecycle Conditions</h3>
+              <p className="forecast-controls-hint">Calibrated for long-term inflation and realistic market return dynamics.</p>
+
+              {/* Age Parameters */}
+              <div className="forecast-control-row-3">
+                <div className="forecast-control-group">
+                  <label>Current Age</label>
+                  <input
+                    type="number"
+                    min="18"
+                    max="80"
+                    value={currentAge}
+                    onChange={e => setCurrentAge(Number(e.target.value))}
+                  />
+                </div>
+                <div className="forecast-control-group">
+                  <label>Retire Age</label>
+                  <input
+                    type="number"
+                    min={currentAge + 1}
+                    max="90"
+                    value={retirementAge}
+                    onChange={e => setRetirementAge(Number(e.target.value))}
+                  />
+                </div>
+                <div className="forecast-control-group">
+                  <label>Life Expectancy</label>
+                  <input
+                    type="number"
+                    min={retirementAge + 1}
+                    max="105"
+                    value={lifeExpectancy}
+                    onChange={e => setLifeExpectancy(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* Current Monthly Expenses */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Current Monthly Living Expenses</label>
+                  <button
+                    type="button"
+                    className="forecast-text-link"
+                    onClick={() => setRetMonthlyExpense(monthlyExpenses)}
+                  >
+                    Use Actual Spending
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  step="2000"
+                  value={retMonthlyExpense}
+                  onChange={e => setRetMonthlyExpense(Math.max(1000, Number(e.target.value)))}
+                />
+              </div>
+
+              {/* Inflation Rate */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Market Inflation Rate (%)</label>
+                  <span className="forecast-value-badge">{inflationRate}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="12"
+                  step="0.5"
+                  value={inflationRate}
+                  onChange={e => setInflationRate(Number(e.target.value))}
+                  className="forecast-slider"
+                />
+                <div className="forecast-preset-chips">
+                  {[
+                    { lbl: '5.0% (Low)', val: 5 },
+                    { lbl: '6.0% (Market Avg)', val: 6 },
+                    { lbl: '7.5% (High)', val: 7.5 }
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      className={`forecast-chip ${inflationRate === p.val ? 'active' : ''}`}
+                      onClick={() => setInflationRate(p.val)}
+                    >
+                      {p.lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pre-Retirement ROI */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Pre-Retirement Investment ROI</label>
+                  <span className="forecast-value-badge">{preRetirementRoi}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="20"
+                  step="0.5"
+                  value={preRetirementRoi}
+                  onChange={e => setPreRetirementRoi(Number(e.target.value))}
+                  className="forecast-slider"
+                />
+              </div>
+
+              {/* Post-Retirement Safe Return */}
+              <div className="forecast-control-group">
+                <div className="forecast-label-row">
+                  <label>Post-Retirement Safe ROI</label>
+                  <span className="forecast-value-badge">{postRetirementRoi}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="3"
+                  max="12"
+                  step="0.5"
+                  value={postRetirementRoi}
+                  onChange={e => setPostRetirementRoi(Number(e.target.value))}
+                  className="forecast-slider"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
+
+// Keep backward-compatible alias
+const Projections = ForecastManager;
 
 function PayEmiModal({ liability, settings, onCancel, onConfirm }) {
   const [amount, setAmount] = useState(liability.minimum_payment || '');
@@ -3942,8 +4954,8 @@ function PayEmiModal({ liability, settings, onCancel, onConfirm }) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <form className="modal" onSubmit={submit} style={{ maxWidth: '520px' }}>
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onSubmit={submit} onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
         <h2>Confirm Monthly EMI • {liability.name}</h2>
         {error && <div className="error">{error}</div>}
 
@@ -4033,8 +5045,8 @@ function ForecloseModal({ liability, settings, onCancel, onConfirm }) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <form className="modal" onSubmit={submit} style={{ maxWidth: '520px' }}>
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onSubmit={submit} onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
         <h2>Foreclose / Settle Loan • {liability.name}</h2>
         {error && <div className="error">{error}</div>}
 
@@ -5063,6 +6075,7 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
     return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const tableWrapRef = useRef(null);
 
   const load = async () => {
     try {
@@ -5141,24 +6154,26 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
   };
 
   return (
-    <section className="page">
-      <div className="overview-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+    <section className="page cashflow-page">
+      <div className="overview-head cashflow-overview-head">
         <div>
           <h1>Cashflow & Activity</h1>
           <p>Track income, expenses, and internal bank transfers with automatic balance sync.</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div className="cashflow-head-actions">
           <button
             type="button"
             className={`privacy-btn ${isPrivacyActive(settings) ? 'privacy-active' : ''}`}
             onClick={settings?.togglePrivacy}
             title={isPrivacyActive(settings) ? "Show Transaction Amounts" : "Hide Transaction Amounts for Privacy"}
           >
-            {isPrivacyActive(settings) ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
+            {isPrivacyActive(settings) ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
             <span>{isPrivacyActive(settings) ? 'Hidden' : 'Hide'}</span>
           </button>
-          <button className="secondary" onClick={onOpenCsvImport}>Import CSV</button>
-          <button className="primary" onClick={() => setEditingTx({})} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button className="secondary header-action-btn cashflow-secondary-btn" onClick={onOpenCsvImport} title="Import CSV Transactions">
+            📥 Import CSV
+          </button>
+          <button className="primary header-action-btn cashflow-record-btn" onClick={() => setEditingTx({})}>
             <span>+</span> Record Transaction
           </button>
         </div>
@@ -5171,32 +6186,58 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
         </div>
       )}
 
-      {/* Stat Cards */}
-      <div className="cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', marginBottom: '24px' }}>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Income</span>
-          <strong style={{ color: '#10b981', fontSize: '20px', marginTop: '4px', display: 'block' }}>+{money(totalIncome, settings)}</strong>
+      {/* Stat Cards - 2x2 Squareish Layout */}
+      <div className="cards cashflow-cards">
+        <div className="card stat-card stat-emerald cashflow-summary-card">
+          <div className="stat-card-head">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="stat-icon-chip">📈</span>
+              <span>Total Income</span>
+            </span>
+          </div>
+          <strong className="stat-value text-emerald">+{money(totalIncome, settings)}</strong>
+          <small className="stat-hint">Active inflows</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Expenses</span>
-          <strong style={{ color: '#ef4444', fontSize: '20px', marginTop: '4px', display: 'block' }}>-{money(totalExpense, settings)}</strong>
+
+        <div className="card stat-card stat-red cashflow-summary-card">
+          <div className="stat-card-head">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="stat-icon-chip">📉</span>
+              <span>Total Expenses</span>
+            </span>
+          </div>
+          <strong className="stat-value text-red">-{money(totalExpense, settings)}</strong>
+          <small className="stat-hint">Outflows & spends</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Net Cash Flow</span>
-          <strong style={{ color: netCashflow >= 0 ? '#10b981' : '#ef4444', fontSize: '20px', marginTop: '4px', display: 'block' }}>
+
+        <div className={`card stat-card ${netCashflow >= 0 ? 'stat-teal tone-positive' : 'stat-red tone-negative'} cashflow-summary-card`}>
+          <div className="stat-card-head">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="stat-icon-chip">💵</span>
+              <span>Net Cash Flow</span>
+            </span>
+          </div>
+          <strong className={`stat-value ${netCashflow >= 0 ? 'tone-positive' : 'tone-negative'}`}>
             {netCashflow >= 0 ? '+' : ''}{money(netCashflow, settings)}
           </strong>
+          <small className="stat-hint">{netCashflow >= 0 ? 'Net surplus' : 'Net deficit'}</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#38bdf8', textTransform: 'uppercase' }}>Transfers ⇄</span>
-          <strong style={{ color: '#38bdf8', fontSize: '20px', marginTop: '4px', display: 'block' }}>{money(totalTransfer, settings)}</strong>
-          <small style={{ color: '#64748b', fontSize: '11px' }}>Internal movements (0 networth impact)</small>
+
+        <div className="card stat-card stat-blue cashflow-summary-card">
+          <div className="stat-card-head">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="stat-icon-chip">🔄</span>
+              <span>Transfers ⇄</span>
+            </span>
+          </div>
+          <strong className="stat-value text-blue">{money(totalTransfer, settings)}</strong>
+          <small className="stat-hint">Internal movements</small>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px', background: '#0f172a', padding: '12px 16px', borderRadius: '10px', border: '1px solid #1e293b' }}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* Filter Panel - 2-Column Full Width Mobile Responsive Grid */}
+      <div className="card cashflow-filter-panel">
+        <div className="cashflow-type-pills">
           <button className={`pill ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => { setTypeFilter('all'); setCurrentPage(1); }}>
             All ({items.length})
           </button>
@@ -5211,88 +6252,91 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            value={accountFilter}
-            onChange={e => { setAccountFilter(e.target.value); setCurrentPage(1); }}
-            style={{ width: 'auto', minWidth: '170px', padding: '6px 12px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
-          >
-            <option value="all">🏦 All Accounts & Banks</option>
-            {assets.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.name} ({money(a.current_value, settings)})
-              </option>
-            ))}
-          </select>
+        <div className="cashflow-filter-controls">
+          <div className="cashflow-filter-item">
+            <select
+              value={accountFilter}
+              onChange={e => { setAccountFilter(e.target.value); setCurrentPage(1); }}
+              className="cashflow-select"
+            >
+              <option value="all">🏦 All Accounts & Banks</option>
+              {assets.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({money(a.current_value, settings)})
+                </option>
+              ))}
+            </select>
+          </div>
 
-          {availableCategories.length > 0 && (
+          <div className="cashflow-filter-item">
             <select
               value={categoryFilter}
               onChange={e => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
-              style={{ width: 'auto', minWidth: '140px', padding: '6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px', cursor: 'pointer' }}
+              className="cashflow-select"
             >
               <option value="all">📁 All Categories</option>
               {availableCategories.map(c => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-          )}
-
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              placeholder="🔍 Search description, category..."
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              style={{ width: '200px', padding: '6px 24px 6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px', padding: 0 }}
-              >
-                ×
-              </button>
-            )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
-            <select
-              value={pageSize}
-              onChange={e => {
-                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
-                setPageSize(val);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('cashflow_page_size', String(val));
-                  localStorage.setItem('preferred_page_size', String(val));
-                }
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                fontSize: '12px',
-                background: '#020617',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                color: '#f8fafc',
-                cursor: 'pointer'
-              }}
-            >
-              <option value={10}>10 records</option>
-              <option value={25}>25 records</option>
-              <option value={50}>50 records</option>
-              <option value={100}>100 records</option>
-              <option value="all">All records</option>
-            </select>
+          <div className="cashflow-filter-item search-item">
+            <div className="cashflow-search-wrap">
+              <input
+                type="text"
+                placeholder="🔍 Search transactions..."
+                value={searchTerm}
+                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                className="cashflow-input"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="search-clear-btn"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="cashflow-filter-item page-view-item">
+            <div className="cashflow-pageview-wrap">
+              <span className="pageview-label">View:</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                  setPageSize(val);
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('cashflow_page_size', String(val));
+                    localStorage.setItem('preferred_page_size', String(val));
+                  }
+                  setCurrentPage(1);
+                }}
+                className="cashflow-select pageview-select"
+              >
+                <option value={10}>10 records</option>
+                <option value={25}>25 records</option>
+                <option value={50}>50 records</option>
+                <option value={100}>100 records</option>
+                <option value="all">All records</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Transactions Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #1e293b' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+      {/* Transactions Table Card with Horizontal Slide Toolbar */}
+      <div className="card cashflow-table-card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #1e293b' }}>
+        <TableScrollHintBar
+          onScrollLeft={() => tableWrapRef.current?.scrollBy({ left: -180, behavior: 'smooth' })}
+          onScrollRight={() => tableWrapRef.current?.scrollBy({ left: 180, behavior: 'smooth' })}
+        />
+        <div ref={tableWrapRef} className="table-wrap cashflow-table-wrap">
+          <table style={{ width: '100%', minWidth: '650px', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ background: '#0f172a', borderBottom: '1px solid #334155', textAlign: 'left' }}>
               <th style={{ padding: '12px 14px' }}>Date</th>
@@ -5366,6 +6410,7 @@ function CashflowManager({ settings, categories, onOpenCsvImport, onOpenStatemen
             )}
           </tbody>
         </table>
+        </div>
         <PaginationBar
           totalRecords={filtered.length}
           pageSize={pageSize}
@@ -5845,6 +6890,7 @@ function InsurancePortfolio({ settings, categories }) {
     return saved === 'all' ? 'all' : (saved ? Number(saved) : 10);
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const tableWrapRef = useRef(null);
 
   const load = async () => {
     try {
@@ -5954,13 +7000,30 @@ function InsurancePortfolio({ settings, categories }) {
 
   return (
     <section className="page">
-      <div className="overview-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+      <div className="overview-head insurance-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
         <div>
-          <h1>Insurance & Protection</h1>
-          <p>Track your Term Life, ULIPs, health policies, coverage limits, and premium schedules.</p>
+          <span className="eyebrow">PROTECTION & WEALTH</span>
+          <h1 style={{ margin: 0, fontSize: '24px', letterSpacing: '-0.4px' }}>Insurance</h1>
+          <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
+            Track term life, ULIPs, endowments, coverage limits, and premium schedules.
+          </p>
         </div>
-        <button className="primary" onClick={() => setEditingPolicy({})} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>+</span> Add New Policy
+        <button
+          className="primary"
+          onClick={() => setEditingPolicy({})}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 16px',
+            borderRadius: '10px',
+            fontWeight: 600,
+            fontSize: '13px',
+            background: 'linear-gradient(135deg, #0d9488, #14b8a6)',
+            boxShadow: '0 0 14px rgba(20, 184, 166, 0.35)'
+          }}
+        >
+          <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span> Add Policy
         </button>
       </div>
 
@@ -5971,41 +7034,48 @@ function InsurancePortfolio({ settings, categories }) {
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Life Cover</span>
-          <strong style={{ color: '#10b981', fontSize: '22px', marginTop: '4px', display: 'block' }}>
-            {money(totalLifeCover, settings)}
-          </strong>
-          <small style={{ color: '#64748b', fontSize: '11px' }}>Family protection / Sum assured</small>
+      {/* Summary Cards Grid: 2x2 on mobile, 4 in a row on desktop */}
+      <div className="insurance-summary-grid">
+        <div className="insurance-stat-card life">
+          <div className="stat-top">
+            <span className="stat-icon">🛡️</span>
+            <span className="stat-title">Life Cover</span>
+          </div>
+          <strong className="stat-value">{money(totalLifeCover, settings)}</strong>
+          <small className="stat-sub">Sum assured protection</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Total Health Cover</span>
-          <strong style={{ color: '#38bdf8', fontSize: '22px', marginTop: '4px', display: 'block' }}>
-            {money(totalHealthCover, settings)}
-          </strong>
-          <small style={{ color: '#64748b', fontSize: '11px' }}>Medical / Hospitalization floater</small>
+
+        <div className="insurance-stat-card health">
+          <div className="stat-top">
+            <span className="stat-icon">🏥</span>
+            <span className="stat-title">Health Cover</span>
+          </div>
+          <strong className="stat-value">{money(totalHealthCover, settings)}</strong>
+          <small className="stat-sub">Medical hospitalization</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Annual Premiums</span>
-          <strong style={{ color: '#f59e0b', fontSize: '22px', marginTop: '4px', display: 'block' }}>
-            {money(totalAnnualPremiums, settings)} / yr
-          </strong>
-          <small style={{ color: '#64748b', fontSize: '11px' }}>Total yearly renewal outflow</small>
+
+        <div className="insurance-stat-card premium">
+          <div className="stat-top">
+            <span className="stat-icon">📅</span>
+            <span className="stat-title">Annual Premiums</span>
+          </div>
+          <strong className="stat-value">{money(totalAnnualPremiums, settings)}<span className="stat-unit">/yr</span></strong>
+          <small className="stat-sub">Total yearly renewal</small>
         </div>
-        <div className="card stat-card" style={{ padding: '16px', background: '#0f172a', border: '1px solid #1e293b' }}>
-          <span style={{ fontSize: '12px', color: '#a855f7', textTransform: 'uppercase' }}>Cash / Surrender Value</span>
-          <strong style={{ color: '#a855f7', fontSize: '22px', marginTop: '4px', display: 'block' }}>
-            {money(totalCashValue, settings)}
-          </strong>
-          <small style={{ color: '#64748b', fontSize: '11px' }}>ULIP & endowment fund value (in Net Worth)</small>
+
+        <div className="insurance-stat-card cash">
+          <div className="stat-top">
+            <span className="stat-icon">✨</span>
+            <span className="stat-title">Cash / Fund Value</span>
+          </div>
+          <strong className="stat-value">{money(totalCashValue, settings)}</strong>
+          <small className="stat-sub">ULIP & endowment value</small>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', background: '#0f172a', padding: '12px 16px', borderRadius: '10px', border: '1px solid #1e293b' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {/* Filter and Search Bar */}
+      <div className="insurance-toolbar">
+        <div className="insurance-filter-pills">
           <button className={`pill ${filterType === 'all' ? 'active' : ''}`} onClick={() => { setFilterType('all'); setCurrentPage(1); }}>
             All Policies ({policies.length})
           </button>
@@ -6023,198 +7093,208 @@ function InsurancePortfolio({ settings, categories }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative' }}>
+        <div className="insurance-search-row">
+          <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
             <input
               type="text"
               placeholder="🔍 Search policies, providers..."
               value={searchTerm}
               onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              style={{ width: '210px', padding: '6px 24px 6px 10px', fontSize: '12px', background: '#020617', borderColor: '#334155', color: '#f8fafc', borderRadius: '6px' }}
+              className="insurance-search-input"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px', padding: 0 }}
+                className="insurance-search-clear"
               >
                 ×
               </button>
             )}
           </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Page View:</span>
-            <select
-              value={pageSize}
-              onChange={e => {
-                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
-                setPageSize(val);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('insurance_page_size', String(val));
-                  localStorage.setItem('preferred_page_size', String(val));
-                }
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                fontSize: '12px',
-                background: '#020617',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                color: '#f8fafc',
-                cursor: 'pointer'
-              }}
-            >
-              <option value={10}>10 records</option>
-              <option value={25}>25 records</option>
-              <option value={50}>50 records</option>
-              <option value="all">All records</option>
-            </select>
-          </div>
+          <select
+            value={pageSize}
+            onChange={e => {
+              const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+              setPageSize(val);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('insurance_page_size', String(val));
+                localStorage.setItem('preferred_page_size', String(val));
+              }
+              setCurrentPage(1);
+            }}
+            className="insurance-page-select"
+          >
+            <option value={10}>10 records</option>
+            <option value={25}>25 records</option>
+            <option value={50}>50 records</option>
+            <option value="all">All records</option>
+          </select>
         </div>
       </div>
 
       {/* Policy Cards Grid */}
       {paginatedPolicies.length === 0 ? (
-        <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b', border: '1px solid #1e293b' }}>
-          <p style={{ margin: 0, fontSize: '15px' }}>{policies.length === 0 ? 'No insurance policies found. Click "+ Add New Policy" to track your life, health, or investment policies!' : 'No insurance policies found matching your search or filters.'}</p>
+        <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b', border: '1px solid #1e293b', borderRadius: '16px' }}>
+          <p style={{ margin: 0, fontSize: '15px' }}>{policies.length === 0 ? 'No insurance policies found. Click "+ Add Policy" to track your life, health, or investment policies!' : 'No insurance policies found matching your search or filters.'}</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '18px' }}>
+        <div className="insurance-cards-grid">
           {paginatedPolicies.map(policy => {
             const isDueSoon = policy.next_due_date && (() => {
               const diff = new Date(policy.next_due_date).getTime() - new Date().getTime();
               return diff >= 0 && diff <= (30 * 24 * 60 * 60 * 1000);
             })();
 
+            const termStr = policy.policy_term || calculateInsuranceTerm(policy.start_date, policy.maturity_date);
+
             return (
-              <div key={policy.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155' }}>
+              <div key={policy.id} className="insurance-policy-card">
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '18px', color: '#f8fafc' }}>{policy.policy_name}</h4>
-                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>{policy.provider} {policy.policy_number ? `• #${policy.policy_number}` : ''}</span>
+                  {/* Header */}
+                  <div className="policy-card-header">
+                    <div className="policy-header-left">
+                      <h3 className="policy-title">{policy.policy_name}</h3>
+                      <div className="policy-subtitle">
+                        <span className="policy-provider">{policy.provider}</span>
+                        {policy.policy_number && (
+                          <span className="policy-number">• #{policy.policy_number}</span>
+                        )}
+                      </div>
                     </div>
-                    <span style={{
-                      padding: '3px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
-                      background: policy.status === 'active' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                      color: policy.status === 'active' ? '#10b981' : '#94a3b8',
-                      textTransform: 'uppercase'
-                    }}>
+                    <span className={`policy-badge ${policy.policy_type}`}>
                       {policyTypeLabels[policy.policy_type] || policy.policy_type}
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', fontSize: '11px', color: '#94a3b8', marginBottom: '12px' }}>
-                    {(policy.policy_term || calculateInsuranceTerm(policy.start_date, policy.maturity_date)) && (
-                      <span style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '4px', color: '#38bdf8', fontWeight: 600 }}>
-                        ⏱ Term: {policy.policy_term || calculateInsuranceTerm(policy.start_date, policy.maturity_date)}
-                      </span>
-                    )}
-                    {policy.start_date && (
-                      <span>Commenced: <strong style={{ color: '#e2e8f0' }}>{formatDate(policy.start_date, settings)}</strong></span>
-                    )}
-                    {policy.maturity_date && (
-                      <span>• Maturity: <strong style={{ color: '#e2e8f0' }}>{formatDate(policy.maturity_date, settings)}</strong></span>
-                    )}
-                  </div>
+                  {/* Term & Dates Strip */}
+                  {(termStr || policy.start_date || policy.maturity_date) && (
+                    <div className="policy-dates-strip">
+                      {termStr && (
+                        <span className="policy-term-chip">
+                          ⏱ Term: {termStr}
+                        </span>
+                      )}
+                      {policy.start_date && (
+                        <span className="policy-date-item">
+                          Commenced: <strong>{formatDate(policy.start_date, settings)}</strong>
+                        </span>
+                      )}
+                      {policy.maturity_date && (
+                        <span className="policy-date-item">
+                          • Maturity: <strong>{formatDate(policy.maturity_date, settings)}</strong>
+                        </span>
+                      )}
+                    </div>
+                  )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' }}>
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block' }}>Sum Assured (Cover)</span>
-                      <strong style={{ color: '#10b981', fontSize: '15px' }}>
+                  {/* Key Metrics 2x2 Box */}
+                  <div className="policy-metrics-box">
+                    <div className="metric-cell">
+                      <span className="metric-label">Sum Assured (Cover)</span>
+                      <strong className="metric-value cover">
                         {policy.sum_assured ? money(policy.sum_assured, settings) : '-'}
                       </strong>
                     </div>
                     {policy.cash_value > 0 ? (
-                      <div>
-                        <span style={{ color: '#64748b', display: 'block' }}>Cash Value</span>
-                        <strong style={{ color: '#a855f7', fontSize: '15px' }}>
+                      <div className="metric-cell">
+                        <span className="metric-label">Cash Value</span>
+                        <strong className="metric-value cash">
                           {money(policy.cash_value, settings)}
                         </strong>
                       </div>
                     ) : (
-                      <div>
-                        <span style={{ color: '#64748b', display: 'block' }}>Nominee</span>
-                        <strong style={{ color: '#e2e8f0' }}>{policy.nominee || '-'}</strong>
+                      <div className="metric-cell">
+                        <span className="metric-label">Nominee</span>
+                        <strong className="metric-value nominee">{policy.nominee || '-'}</strong>
                       </div>
                     )}
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block' }}>Premium</span>
-                      <strong style={{ color: '#f59e0b' }}>
-                        {policy.premium_amount ? `${money(policy.premium_amount, settings)} (${policy.premium_frequency})` : '-'}
+                    <div className="metric-cell">
+                      <span className="metric-label">Premium</span>
+                      <strong className="metric-value premium">
+                        {policy.premium_amount ? money(policy.premium_amount, settings) : '-'}
+                        {policy.premium_frequency && <span className="premium-freq"> ({policy.premium_frequency})</span>}
                       </strong>
                     </div>
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block' }}>Next Due Date</span>
-                      <strong style={{ color: isDueSoon ? '#ef4444' : '#e2e8f0' }}>
+                    <div className="metric-cell">
+                      <span className="metric-label">Next Due Date</span>
+                      <strong className={`metric-value date ${isDueSoon ? 'due-soon' : ''}`}>
                         {policy.next_due_date ? formatDate(policy.next_due_date, settings) : '-'}
-                        {isDueSoon && <span style={{ marginLeft: '4px', fontSize: '10px', color: '#ef4444' }}>⚠️ Due Soon</span>}
+                        {isDueSoon && <span className="due-badge">⚠️ Due Soon</span>}
                       </strong>
                     </div>
                   </div>
 
+                  {/* Maturity / Bonus Certificate Box */}
                   {(policy.maturity_payout_option || policy.maturity_amount > 0 || policy.vested_bonus > 0 || policy.loyalty_addition > 0) && (
-                    <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: (policy.vested_bonus > 0 || policy.loyalty_addition > 0) ? '6px' : 0 }}>
-                        <span style={{ color: '#38bdf8', fontWeight: 600 }}>🎯 {policy.maturity_payout_option || 'Payment on Maturity'}</span>
+                    <div className="policy-maturity-box">
+                      <div className="maturity-top-row">
+                        <span className="maturity-label">
+                          🎯 {policy.maturity_payout_option || 'Payment on Maturity'}
+                        </span>
                         {policy.maturity_amount > 0 && (
-                          <span style={{ color: '#94a3b8' }}>
-                            Est. Payout: <strong style={{ color: '#10b981', fontSize: '13px' }}>{money(policy.maturity_amount, settings)}</strong>
-                          </span>
+                          <div className="maturity-payout">
+                            <span className="est-text">Est. Payout:</span>
+                            <strong className="est-amount">{money(policy.maturity_amount, settings)}</strong>
+                          </div>
                         )}
                       </div>
                       {(policy.vested_bonus > 0 || policy.loyalty_addition > 0) && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', color: '#94a3b8', paddingTop: '4px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
+                        <div className="maturity-bonuses-row">
                           {policy.vested_bonus > 0 && (
-                            <span>Vested Bonus: <strong style={{ color: '#f59e0b' }}>{money(policy.vested_bonus, settings)}</strong></span>
+                            <div className="bonus-chip vested">
+                              <span>Vested Bonus:</span>
+                              <strong>{money(policy.vested_bonus, settings)}</strong>
+                            </div>
                           )}
                           {policy.loyalty_addition > 0 && (
-                            <span>Loyalty Addition: <strong style={{ color: '#a855f7' }}>{money(policy.loyalty_addition, settings)}</strong></span>
+                            <div className="bonus-chip loyalty">
+                              <span>Loyalty:</span>
+                              <strong>{money(policy.loyalty_addition, settings)}</strong>
+                            </div>
                           )}
                         </div>
                       )}
                     </div>
                   )}
 
+                  {/* Additional Info */}
                   {policy.cash_value > 0 && policy.nominee && (
-                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
-                      Nominee: <strong style={{ color: '#cbd5e1' }}>{policy.nominee}</strong>
+                    <div className="policy-meta-line">
+                      Nominee: <strong>{policy.nominee}</strong>
                     </div>
                   )}
-
                   {policy.account_name && (
-                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '14px' }}>
-                      Auto-payment account: <strong style={{ color: '#94a3b8' }}>{policy.account_name}</strong>
+                    <div className="policy-meta-line bank">
+                      <span>Auto-payment account:</span> <strong>{policy.account_name}</strong>
                     </div>
                   )}
-
                   {policy.notes && (
-                    <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', marginBottom: '14px' }}>
+                    <div className="policy-meta-line notes">
                       "{policy.notes}"
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                {/* Actions */}
+                <div className="policy-actions-row">
                   <button
-                    className="primary"
-                    style={{ flex: 1, padding: '7px 12px', fontSize: '13px' }}
+                    type="button"
+                    className="policy-btn-pay"
                     onClick={() => setPayingPolicy(policy)}
                   >
-                    ✓ Pay Premium
+                    <span>✓</span> Pay Premium
                   </button>
                   <button
-                    className="secondary"
-                    style={{ padding: '7px 12px', fontSize: '13px' }}
+                    type="button"
+                    className="policy-btn-edit"
                     onClick={() => setEditingPolicy(policy)}
                   >
                     Edit
                   </button>
                   <button
-                    className="danger"
-                    style={{ padding: '7px 12px', fontSize: '13px' }}
+                    type="button"
+                    className="policy-btn-delete"
                     onClick={() => handleDeletePolicy(policy.id)}
                   >
                     Delete
@@ -6346,7 +7426,7 @@ function CsvImporter({ onCancel, onComplete }) {
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ width: '500px' }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
         <h2>Import CSV</h2>
         {!file ? (
           <div style={{ padding: '20px 0' }}>
@@ -6379,7 +7459,7 @@ function CsvImporter({ onCancel, onComplete }) {
             </label>
             
             <div className="modal-actions" style={{ marginTop: '20px' }}>
-              <button onClick={onCancel}>Cancel</button>
+              <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
               <button onClick={executeImport} className="primary" disabled={importing}>{importing ? 'Importing...' : 'Import Data'}</button>
             </div>
           </div>
@@ -6397,7 +7477,48 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [statementAsset, setStatementAsset] = useState(null);
-  const [privacyMode, setPrivacyMode] = useState(() => {
+    const mobileNavRef = useRef(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+
+  // Auto-scroll the active tab into the center of the mobile navigation bar
+  useEffect(() => {
+    if (mobileNavRef.current) {
+      const activeEl = mobileNavRef.current.querySelector('.mobile-tab-btn.active');
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [view]);
+
+  // Touch swipe gestures to slide sideways between pages
+  const navOrder = [
+    'dashboard', 'assets', 'liabilities', 'cashflow', 'investments',
+    'budgets', 'goals', 'projections', 'debtplanner', 'subscriptions',
+    'insurance', 'history'
+  ];
+
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+    if (Math.abs(deltaX) > 65 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      const currentIndex = navOrder.indexOf(view);
+      if (currentIndex !== -1) {
+        if (deltaX < 0 && currentIndex < navOrder.length - 1) {
+          setView(navOrder[currentIndex + 1]);
+        } else if (deltaX > 0 && currentIndex > 0) {
+          setView(navOrder[currentIndex - 1]);
+        }
+      }
+    }
+  };
+
+const [privacyMode, setPrivacyMode] = useState(() => {
     return typeof window !== 'undefined' ? localStorage.getItem('networth_privacy_mode') === 'true' : false;
   });
 
@@ -6555,10 +7676,11 @@ function App() {
     },
     {
       id: 'projections',
-      label: 'FIRE Planner',
+      label: 'Forecast',
       icon: (
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+          <polyline points="17 6 23 6 23 12"></polyline>
         </svg>
       )
     },
@@ -6686,7 +7808,7 @@ function App() {
     investments: <PortfolioTracker settings={s} categories={categories} />,
     budgets: <BudgetPlanner settings={s} />,
     goals: <Goals settings={s} />,
-    projections: <Projections settings={s} />,
+    projections: <ForecastManager settings={s} />,
     debtplanner: <DebtPlanner settings={s} categories={categories} />,
     subscriptions: <Subscriptions settings={s} categories={categories} />,
     insurance: <InsurancePortfolio settings={s} categories={categories} />,
@@ -6696,7 +7818,41 @@ function App() {
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-      <aside>
+      {/* Mobile Top App Bar */}
+      <header className="mobile-top-bar">
+        <div className="mobile-brand" onClick={() => setView('dashboard')}>
+          <div className="mobile-brand-chip">NW</div>
+          <div className="mobile-brand-title">
+            <span className="mobile-brand-main">NetWorth</span>
+            <span className="mobile-brand-badge">PRO</span>
+          </div>
+        </div>
+        <div className="mobile-top-actions">
+          <button
+            type="button"
+            className="mobile-icon-btn"
+            onClick={togglePrivacy}
+            title={privacyMode ? "Privacy Mode ON (Balances Hidden)" : "Privacy Mode OFF"}
+            style={{ color: privacyMode ? '#f87171' : '#5eead4' }}
+          >
+            {privacyMode ? <EyeOffIcon size={17} /> : <EyeIcon size={17} />}
+          </button>
+          <button
+            type="button"
+            className="mobile-icon-btn"
+            onClick={() => setView('settings')}
+            title="Settings & Cloud Backup"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      {/* Desktop Sidebar (Only visible on desktop screen) */}
+      <aside className="desktop-aside">
         <div className="brand-row">
           {!sidebarCollapsed && (
             <div className="brand-title">
@@ -6726,12 +7882,12 @@ function App() {
           </div>
         </div>
         {navItems.map(item => (
-          <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); if (typeof window !== 'undefined' && window.innerWidth <= 768) setSidebarCollapsed(true); }}>
+          <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); }}>
             <b>{item.icon}</b>
             {!sidebarCollapsed && item.label}
           </button>
         ))}
-         <button className="logout" onClick={logout}>
+        <button className="logout" onClick={logout}>
           <b>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -6742,11 +7898,30 @@ function App() {
           {!sidebarCollapsed && 'Logout'}
         </button>
       </aside>
-      <main>
+
+      {/* Main Content Area with Touch Gesture Support */}
+      <main onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {pages[view]}
         {showCsvImport && <CsvImporter onCancel={() => setShowCsvImport(false)} onComplete={() => { setShowCsvImport(false); window.location.reload(); }} />}
         {statementAsset && <AccountStatementModal asset={statementAsset} settings={s} onClose={() => setStatementAsset(null)} />}
       </main>
+
+      {/* Mobile Bottom Navigation Bar (Slide horizontally to reach all 13 options) */}
+      <div className="mobile-bottom-nav-wrapper">
+        <nav ref={mobileNavRef} className="mobile-bottom-nav">
+          {navItems.filter(item => item.id !== 'settings').map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`mobile-tab-btn ${view === item.id ? 'active' : ''}`}
+              onClick={() => setView(item.id)}
+            >
+              <span className="tab-icon">{item.icon}</span>
+              <span className="tab-label">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }
