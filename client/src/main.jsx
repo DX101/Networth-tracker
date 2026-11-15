@@ -606,7 +606,7 @@ function Auth({ onLogin }) {
     e.preventDefault();
     setError('');
     try {
-      const data = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username, password }) });
+      const data = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username: username.trim(), password }) });
       localStorage.setItem('token', data.token);
       onLogin(data.user);
     } catch (err) {
@@ -1054,21 +1054,99 @@ function CrudSummary({ title, rows, settings }) {
   if (rows.length === 0) return null;
   if (title === 'Assets') {
     const total = rows.reduce((sum, row) => sum + convertValue(row.current_value, row.currency, settings), 0);
-    return <div className="cards budget-cards"><div className="card stat-card stat-emerald"><span>Current Assets</span><strong>{money(total, settings)}</strong><small>{rows.length} asset records</small></div></div>;
+    return (
+      <div className="cards budget-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="card stat-card stat-emerald">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">🏛️</span>
+            <span>Current Assets</span>
+          </div>
+          <strong className="stat-value">{money(total, settings)}</strong>
+          <small className="stat-hint">{rows.length} {rows.length === 1 ? 'asset record' : 'asset records'}</small>
+        </div>
+      </div>
+    );
   }
   if (title === 'Liabilities') {
     const total = rows.reduce((sum, row) => sum + convertValue(row.current_value, row.currency, settings), 0);
-    return <div className="cards budget-cards"><div className="card stat-card stat-red"><span>Current Liabilities</span><strong>{money(total, settings)}</strong><small>{rows.length} liability records</small></div></div>;
+    return (
+      <div className="cards budget-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="card stat-card stat-red">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">💳</span>
+            <span>Current Liabilities</span>
+          </div>
+          <strong className="stat-value">{money(total, settings)}</strong>
+          <small className="stat-hint">{rows.length} {rows.length === 1 ? 'liability record' : 'liability records'}</small>
+        </div>
+      </div>
+    );
   }
   if (title === 'Cashflow') {
     const income = rows.filter((row) => row.type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const expenses = rows.filter((row) => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    return <div className="cards budget-cards"><div className="card stat-card stat-emerald"><span>Total Income</span><strong>{money(income, settings)}</strong></div><div className="card stat-card stat-red"><span>Total Expenses</span><strong>{money(expenses, settings)}</strong></div><div className="card stat-card stat-blue"><span>Net Cash Flow</span><strong>{money(income - expenses, settings)}</strong></div></div>;
+    const net = income - expenses;
+    return (
+      <div className="cards budget-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="card stat-card stat-emerald">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">📈</span>
+            <span>Total Income</span>
+          </div>
+          <strong className="stat-value">+{money(income, settings)}</strong>
+          <small className="stat-hint">Active inflows</small>
+        </div>
+        <div className="card stat-card stat-red">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">📉</span>
+            <span>Total Expenses</span>
+          </div>
+          <strong className="stat-value">-{money(expenses, settings)}</strong>
+          <small className="stat-hint">Active outflows</small>
+        </div>
+        <div className={`card stat-card ${net >= 0 ? 'stat-teal tone-positive' : 'stat-red tone-negative'}`}>
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">⚖️</span>
+            <span>Net Cash Flow</span>
+          </div>
+          <strong className="stat-value">{net > 0 ? `+${money(net, settings)}` : money(net, settings)}</strong>
+          <small className="stat-hint">Income minus expenses</small>
+        </div>
+      </div>
+    );
   }
   if (title === 'Portfolio') {
     const invested = rows.reduce((sum, row) => sum + investmentInvestedAmount(row, settings), 0);
     const current = rows.reduce((sum, row) => sum + investmentCurrentValue(row, settings), 0);
-    return <div className="cards budget-cards"><div className="card stat-card stat-purple"><span>Current Value</span><strong>{money(current, settings)}</strong></div><div className="card stat-card stat-yellow"><span>Invested Amount</span><strong>{money(invested, settings)}</strong></div><div className="card stat-card stat-blue"><span>Investment P&L</span><strong>{money(current - invested, settings)}</strong></div></div>;
+    const pnl = current - invested;
+    return (
+      <div className="cards budget-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="card stat-card stat-purple">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">💼</span>
+            <span>Current Value</span>
+          </div>
+          <strong className="stat-value">{money(current, settings)}</strong>
+          <small className="stat-hint">Market valuation</small>
+        </div>
+        <div className="card stat-card stat-yellow">
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">💰</span>
+            <span>Invested Amount</span>
+          </div>
+          <strong className="stat-value">{money(invested, settings)}</strong>
+          <small className="stat-hint">Total capital deployed</small>
+        </div>
+        <div className={`card stat-card ${pnl >= 0 ? 'stat-teal tone-positive' : 'stat-red tone-negative'}`}>
+          <div className="stat-card-head">
+            <span className="stat-icon-chip">⚡</span>
+            <span>Investment P&L</span>
+          </div>
+          <strong className="stat-value">{pnl > 0 ? `+${money(pnl, settings)}` : money(pnl, settings)}</strong>
+          <small className="stat-hint">{invested > 0 ? `${((pnl / invested) * 100).toFixed(2)}% return` : '0% return'}</small>
+        </div>
+      </div>
+    );
   }
   return null;
 }
@@ -2401,10 +2479,10 @@ Investment P&L:     ${money(snap.investment_pnl, settings)}
           recent_transactions: <RecentCashFlow rows={data.cashflow.slice(0, 8)} settings={settings} onEdit={setEditingTx} onDelete={handleDeleteTx} />
         };
 
-        const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart'];
+        const defaultLayout = ['stats', 'breakdown', 'goals', 'networth_chart', 'asset_chart', 'cashflow_chart', 'investment_chart', 'recent_transactions'];
         let currentLayout = [...defaultLayout];
         try { if (settings.dashboard_layout) currentLayout = JSON.parse(settings.dashboard_layout); } catch(e) {}
-        currentLayout = currentLayout.filter(k => k !== 'recent_transactions');
+        if (!currentLayout.includes('recent_transactions')) currentLayout.push('recent_transactions');
         
         // Ensure breakdown is ALWAYS right after stats (visually it drops down from the cards)
         currentLayout = currentLayout.filter(k => k !== 'breakdown');

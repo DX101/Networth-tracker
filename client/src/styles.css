@@ -439,11 +439,12 @@ main {
 .card,
 .chart-card,
 .breakdown-card {
-  border: 1px solid #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.82));
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.90));
   padding: 18px;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
 }
 
 .card span {
@@ -454,92 +455,242 @@ main {
 
 .card strong {
   font-size: 21px;
+  font-weight: 800;
   color: #f8fafc;
   white-space: nowrap;
+  letter-spacing: -0.3px;
 }
+
+/* ==========================================================================
+   STAT CARDS - RICH COLOR ACCENTS & DEPTH (GLOBAL: DESKTOP & MOBILE)
+   ========================================================================== */
 
 .stat-card {
   text-align: left;
   color: inherit;
   cursor: pointer;
-  transition: transform 0.16s ease, border-color 0.16s ease;
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 15px 16px;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.90));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 106px;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
   filter: none;
-  border-color: #14b8a6;
+  border-color: rgba(94, 234, 212, 0.4);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
 }
 
 .stat-card.selected {
-  border-color: #14b8a6;
-  background: linear-gradient(180deg, rgba(19, 78, 74, 0.85), rgba(15, 23, 42, 0.95));
+  border-color: #14b8a6 !important;
+  background: linear-gradient(145deg, rgba(20, 184, 166, 0.18), rgba(15, 23, 42, 0.96)) !important;
+  box-shadow: 0 0 18px rgba(20, 184, 166, 0.3) !important;
+}
+
+.stat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 8px;
+  gap: 6px;
+}
+
+.stat-icon-chip {
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .stat-card span {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 0;
 }
 
 .stat-card span b {
-  font-size: 18px;
+  font-size: 15px;
   color: currentColor;
 }
 
-.stat-card small {
+.stat-value {
+  font-size: 19px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.4px;
   display: block;
-  margin-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.stat-card small,
+.stat-hint {
+  display: block;
+  margin-top: 4px;
   color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* Micro Glowing Accent Line across the top of cards */
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 2.5px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Teal Accent (Net Worth, Budgets) */
+.stat-teal::before {
+  background: linear-gradient(90deg, transparent, #14b8a6, transparent);
+  box-shadow: 0 0 10px #14b8a6, 0 0 3px #14b8a6;
+}
 .stat-teal {
-  border-top: 3px solid #14b8a6;
+  border-top: 1px solid rgba(20, 184, 166, 0.6) !important;
+}
+.stat-teal .stat-value,
+.stat-teal strong,
+.text-teal {
+  color: #5eead4 !important;
+  text-shadow: 0 0 14px rgba(20, 184, 166, 0.35);
 }
 
+/* Emerald Accent (Total Assets, Inflows, Remaining) */
+.stat-emerald::before {
+  background: linear-gradient(90deg, transparent, #10b981, transparent);
+  box-shadow: 0 0 10px #10b981, 0 0 3px #10b981;
+}
 .stat-emerald {
-  border-top: 3px solid #10b981;
+  border-top: 1px solid rgba(16, 185, 129, 0.6) !important;
+}
+.stat-emerald .stat-value,
+.stat-emerald strong,
+.text-emerald {
+  color: #34d399 !important;
+  text-shadow: 0 0 14px rgba(16, 185, 129, 0.35);
 }
 
+/* Red / Rose Accent (Total Liabilities, Outflows, Expenses) */
+.stat-red::before {
+  background: linear-gradient(90deg, transparent, #f43f5e, transparent);
+  box-shadow: 0 0 10px #f43f5e, 0 0 3px #f43f5e;
+}
 .stat-red {
-  border-top: 3px solid #ef4444;
+  border-top: 1px solid rgba(244, 63, 94, 0.6) !important;
+}
+.stat-red .stat-value,
+.stat-red strong,
+.text-red {
+  color: #fb7185 !important;
+  text-shadow: 0 0 14px rgba(244, 63, 94, 0.35);
 }
 
+/* Blue / Sky Accent (Monthly Cash Flow, Net Balance, Savings) */
+.stat-blue::before {
+  background: linear-gradient(90deg, transparent, #0ea5e9, transparent);
+  box-shadow: 0 0 10px #0ea5e9, 0 0 3px #0ea5e9;
+}
 .stat-blue {
-  border-top: 3px solid #3b82f6;
+  border-top: 1px solid rgba(14, 165, 233, 0.6) !important;
+}
+.stat-blue .stat-value,
+.stat-blue strong,
+.text-blue {
+  color: #38bdf8 !important;
+  text-shadow: 0 0 14px rgba(14, 165, 233, 0.35);
 }
 
+/* Purple Accent (Investments Portfolio, Current Value) */
+.stat-purple::before {
+  background: linear-gradient(90deg, transparent, #a855f7, transparent);
+  box-shadow: 0 0 10px #a855f7, 0 0 3px #a855f7;
+}
 .stat-purple {
-  border-top: 3px solid #8b5cf6;
+  border-top: 1px solid rgba(168, 85, 247, 0.6) !important;
+}
+.stat-purple .stat-value,
+.stat-purple strong,
+.text-purple {
+  color: #c084fc !important;
+  text-shadow: 0 0 14px rgba(168, 85, 247, 0.35);
 }
 
+/* Yellow / Amber Accent (Investment P&L, Spent, Invested Amount) */
+.stat-yellow::before {
+  background: linear-gradient(90deg, transparent, #f59e0b, transparent);
+  box-shadow: 0 0 10px #f59e0b, 0 0 3px #f59e0b;
+}
 .stat-yellow {
-  border-top: 3px solid #f59e0b;
+  border-top: 1px solid rgba(245, 158, 11, 0.6) !important;
+}
+.stat-yellow .stat-value,
+.stat-yellow strong,
+.text-yellow {
+  color: #fbbf24 !important;
+  text-shadow: 0 0 14px rgba(245, 158, 11, 0.35);
 }
 
-.stat-teal.selected {
-  box-shadow: 0 0 0 1px #14b8a6, 0 18px 45px rgba(20, 184, 166, 0.16);
+/* Dynamic Tones: Positive (Emerald Glow) & Negative (Rose Glow) */
+.stat-card.tone-positive strong,
+.stat-card.tone-positive .stat-value,
+.stat-card .stat-value.tone-positive,
+.stat-value.tone-positive,
+.tone-positive {
+  color: #34d399 !important;
+  text-shadow: 0 0 16px rgba(16, 185, 129, 0.5), 0 0 2px rgba(16, 185, 129, 0.8) !important;
+}
+.stat-card.tone-positive {
+  border-top-color: #10b981 !important;
+}
+.stat-card.tone-positive::before {
+  background: linear-gradient(90deg, transparent, #10b981, transparent) !important;
+  box-shadow: 0 0 10px #10b981, 0 0 3px #10b981 !important;
 }
 
-.stat-emerald.selected {
-  box-shadow: 0 0 0 1px #10b981, 0 18px 45px rgba(16, 185, 129, 0.16);
+.stat-card.tone-negative strong,
+.stat-card.tone-negative .stat-value,
+.stat-card .stat-value.tone-negative,
+.stat-value.tone-negative,
+.tone-negative {
+  color: #fb7185 !important;
+  text-shadow: 0 0 16px rgba(244, 63, 94, 0.5), 0 0 2px rgba(244, 63, 94, 0.8) !important;
 }
-
-.stat-red.selected {
-  box-shadow: 0 0 0 1px #ef4444, 0 18px 45px rgba(239, 68, 68, 0.16);
+.stat-card.tone-negative {
+  border-top-color: #f43f5e !important;
 }
-
-.stat-blue.selected {
-  box-shadow: 0 0 0 1px #3b82f6, 0 18px 45px rgba(59, 130, 246, 0.16);
-}
-
-.stat-purple.selected {
-  box-shadow: 0 0 0 1px #8b5cf6, 0 18px 45px rgba(139, 92, 246, 0.16);
-}
-
-.stat-yellow.selected {
-  box-shadow: 0 0 0 1px #f59e0b, 0 18px 45px rgba(245, 158, 11, 0.16);
+.stat-card.tone-negative::before {
+  background: linear-gradient(90deg, transparent, #f43f5e, transparent) !important;
+  box-shadow: 0 0 10px #f43f5e, 0 0 3px #f43f5e !important;
 }
 
 .charts {
@@ -2293,8 +2444,9 @@ button:disabled {
     top: 0;
     left: 0;
     right: 0;
-    height: 54px;
-    padding: 0 16px;
+    min-height: 54px;
+    padding: max(12px, env(safe-area-inset-top, 0px)) 16px 10px 16px;
+    box-sizing: border-box;
     background: rgba(15, 23, 42, 0.94);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -2378,7 +2530,7 @@ button:disabled {
   }
 
   .page {
-    padding: 14px 14px 92px 14px !important;
+    padding: 14px 14px calc(96px + env(safe-area-inset-bottom, 0px)) 14px !important;
   }
 
   /* Page Head & Overview Head on mobile */
@@ -4037,6 +4189,8 @@ button:disabled {
     background: rgba(11, 17, 32, 0.96);
     backdrop-filter: blur(16px);
     border-top: 1px solid rgba(51, 65, 85, 0.6);
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
   }
 
   .mobile-bottom-nav-wrapper .mobile-bottom-nav {

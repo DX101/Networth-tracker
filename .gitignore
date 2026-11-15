@@ -7,3 +7,5 @@ release-*/
 .env
 .env.*
 !/.env.example
+
+cloudflared.exe

@@ -40,13 +40,15 @@ router.post('/register', (req, res) => {
 // POST /api/auth/login
 router.post('/login', (req, res) => {
   try {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'username and password are required' });
     }
+    username = (username || '').trim();
     const db = getDb();
 
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    // Case-insensitive lookup and trim support
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(username);
     if (!user) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
