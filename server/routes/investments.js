@@ -81,35 +81,75 @@ router.post('/', async (req, res) => {
     const {
       asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
       is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
-      tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date
+      tenure, payout_frequency, receiving_account_id, receiving_account_name,
+      source_account_id, source_account_name, deduct_from_source, last_interest_date
     } = req.body;
 
     if (!asset_name || !category) return res.status(400).json({ error: 'Name and Category required' });
 
     const isFd = isFdorRd(category);
-    const finalQty = isFd ? 1 : (quantity || 1);
+    const finalQty = isFd ? 1 : (Number(quantity) || 1);
     const finalTicker = isFd ? '' : (ticker || '');
     const finalCurPrice = (current_price !== undefined && current_price !== null && current_price !== '')
       ? Number(current_price)
       : (isFd ? Number(buy_price || 0) : 0);
     const finalPayout = payout_frequency || (isFd ? 'Payment on Maturity' : '');
 
-    const stmt = db.prepare(`
-      INSERT INTO investments (
-        asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
-        is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
-        tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      asset_name, category, buy_price || 0, finalCurPrice, finalQty,
-      buy_date || new Date().toISOString().split('T')[0], platform || '', notes || '',
-      is_sip ? 1 : 0, sip_monthly || 0, interest_rate || 0, maturity_date || null, currency || null, finalTicker,
-      tenure || '', finalPayout, receiving_account_id ? Number(receiving_account_id) : null, receiving_account_name || '', last_interest_date || null,
-      userId
-    );
+    // Resolve source and receiving account names
+    const srcId = source_account_id ? Number(source_account_id) : null;
+    let finalSourceName = source_account_name || '';
+    if (srcId && !finalSourceName) {
+      const srcAcc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(srcId, userId);
+      if (srcAcc) finalSourceName = srcAcc.name;
+    }
+
+    const recId = receiving_account_id ? Number(receiving_account_id) : null;
+    let finalReceivingName = receiving_account_name || '';
+    if (recId && !finalReceivingName) {
+      const recAcc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(recId, userId);
+      if (recAcc) finalReceivingName = recAcc.name;
+    }
+
+    const txDate = buy_date || new Date().toISOString().split('T')[0];
+    const totalCost = isFd ? Number(buy_price || 0) : (Number(buy_price || 0) * finalQty);
+    const shouldDeduct = Boolean(deduct_from_source && srcId && totalCost > 0);
+
+    let insertedId;
+    db.transaction(() => {
+      const stmt = db.prepare(`
+        INSERT INTO investments (
+          asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
+          is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
+          tenure, payout_frequency, receiving_account_id, receiving_account_name,
+          source_account_id, source_account_name, last_interest_date, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const result = stmt.run(
+        asset_name, category, buy_price || 0, finalCurPrice, finalQty,
+        txDate, platform || '', notes || '',
+        is_sip ? 1 : 0, sip_monthly || 0, interest_rate || 0, maturity_date || null, currency || null, finalTicker,
+        tenure || '', finalPayout, recId, finalReceivingName,
+        srcId, finalSourceName, last_interest_date || null,
+        userId
+      );
+      insertedId = result.lastInsertRowid;
+
+      // If requested, deduct totalCost from source account and record Cashflow expense
+      if (shouldDeduct) {
+        db.prepare("UPDATE assets SET current_value = ROUND(current_value - ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(totalCost, srcId, userId);
+
+        const cfDesc = `Investment: Bought ${asset_name} (${category}${finalQty > 1 ? ` x ${finalQty}` : ''})${platform ? ` via ${platform}` : ''}`;
+        db.prepare(`
+          INSERT INTO cashflow (
+            type, amount, category, date, description, account_id, adjust_balance, user_id
+          ) VALUES ('expense', ?, 'Investment Deposit', ?, ?, ?, 1, ?)
+        `).run(totalCost, txDate, cfDesc, srcId, userId);
+      }
+    })();
+
     await takeSnapshot(userId);
-    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(result.lastInsertRowid, userId);
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(insertedId, userId);
     res.status(201).json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -125,7 +165,8 @@ router.put('/:id', async (req, res) => {
     const {
       asset_name, category, buy_price, current_price, quantity, buy_date, platform, notes,
       is_sip, sip_monthly, interest_rate, maturity_date, currency, ticker,
-      tenure, payout_frequency, receiving_account_id, receiving_account_name, last_interest_date
+      tenure, payout_frequency, receiving_account_id, receiving_account_name,
+      source_account_id, source_account_name, last_interest_date
     } = req.body;
 
     const existing = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
@@ -136,11 +177,30 @@ router.put('/:id', async (req, res) => {
     const finalTicker = isFd ? '' : (ticker ?? existing.ticker ?? '');
     const finalCurPrice = current_price ?? existing.current_price;
 
+    const srcId = source_account_id !== undefined ? (source_account_id ? Number(source_account_id) : null) : existing.source_account_id;
+    let finalSourceName = source_account_name ?? existing.source_account_name ?? '';
+    if (srcId && !finalSourceName) {
+      const srcAcc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(srcId, userId);
+      if (srcAcc) finalSourceName = srcAcc.name;
+    } else if (!srcId) {
+      finalSourceName = '';
+    }
+
+    const recId = receiving_account_id !== undefined ? (receiving_account_id ? Number(receiving_account_id) : null) : existing.receiving_account_id;
+    let finalReceivingName = receiving_account_name ?? existing.receiving_account_name ?? '';
+    if (recId && !finalReceivingName) {
+      const recAcc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(recId, userId);
+      if (recAcc) finalReceivingName = recAcc.name;
+    } else if (!recId) {
+      finalReceivingName = '';
+    }
+
     const stmt = db.prepare(`
       UPDATE investments SET 
         asset_name = ?, category = ?, buy_price = ?, current_price = ?, 
         quantity = ?, buy_date = ?, platform = ?, notes = ?, is_sip = ?, sip_monthly = ?, interest_rate = ?, maturity_date = ?, currency = ?, ticker = ?,
-        tenure = ?, payout_frequency = ?, receiving_account_id = ?, receiving_account_name = ?, last_interest_date = ?, updated_at = datetime('now')
+        tenure = ?, payout_frequency = ?, receiving_account_id = ?, receiving_account_name = ?,
+        source_account_id = ?, source_account_name = ?, last_interest_date = ?, updated_at = datetime('now')
        WHERE id = ? AND user_id = ?
     `);
     stmt.run(
@@ -160,8 +220,10 @@ router.put('/:id', async (req, res) => {
       finalTicker,
       tenure ?? existing.tenure ?? '',
       payout_frequency ?? existing.payout_frequency ?? 'Payment on Maturity',
-      receiving_account_id !== undefined ? (receiving_account_id ? Number(receiving_account_id) : null) : existing.receiving_account_id,
-      receiving_account_name ?? existing.receiving_account_name ?? '',
+      recId,
+      finalReceivingName,
+      srcId,
+      finalSourceName,
       last_interest_date ?? existing.last_interest_date ?? null,
       req.params.id,
       userId
@@ -270,6 +332,149 @@ router.post('/:id/record-interest', async (req, res) => {
       account_name: accountName,
       last_interest_date: txDate,
       cashflow_id: txResult.cashflow_id
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST record dividend or distribution for stocks, mutual funds, crypto, real estate, etc.
+router.post('/:id/record-dividend', async (req, res) => {
+  try {
+    const db = getDb();
+    ensureInvestmentColumns(db);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!item) return res.status(404).json({ error: 'Investment not found' });
+
+    let { amount, date, account_id, description, adjust_balance } = req.body;
+    let amt = Number(amount);
+    if (isNaN(amt) || amt <= 0) {
+      return res.status(400).json({ error: 'Dividend amount must be greater than 0' });
+    }
+
+    const txDate = date || new Date().toISOString().split('T')[0];
+    const targetAccountId = account_id ? Number(account_id) : item.receiving_account_id;
+    const shouldAdjust = adjust_balance !== false && adjust_balance !== 0 && adjust_balance !== '0';
+
+    let accountName = '';
+    if (targetAccountId) {
+      const acc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(targetAccountId, userId);
+      if (acc) accountName = acc.name;
+    }
+
+    const txDesc = description || `Dividend / Distribution from ${item.asset_name} (${item.category})`;
+
+    const txResult = db.transaction(() => {
+      // 1. Credit target account if requested and target exists
+      if (targetAccountId && shouldAdjust) {
+        db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(amt, targetAccountId, userId);
+      }
+
+      // 2. Insert into cashflow as income
+      const cfResult = db.prepare(`
+        INSERT INTO cashflow (
+          type, amount, category, date, description, is_recurring, frequency, account_id, adjust_balance, user_id
+        ) VALUES ('income', ?, 'Dividends', ?, ?, 0, NULL, ?, ?, ?)
+      `).run(amt, txDate, txDesc, targetAccountId || null, shouldAdjust ? 1 : 0, userId);
+
+      // 3. Update investment receiving account and last_interest_date
+      db.prepare(`
+        UPDATE investments SET 
+          last_interest_date = ?, 
+          receiving_account_id = COALESCE(?, receiving_account_id),
+          receiving_account_name = CASE WHEN ? != '' THEN ? ELSE receiving_account_name END,
+          updated_at = datetime('now') 
+        WHERE id = ? AND user_id = ?
+      `).run(txDate, targetAccountId || null, accountName, accountName, item.id, userId);
+
+      return { cashflow_id: cfResult.lastInsertRowid };
+    })();
+
+    await takeSnapshot(userId);
+
+    res.json({
+      success: true,
+      message: `Recorded dividend of ₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })} successfully${accountName ? ' into ' + accountName : ''}!`,
+      amount: amt,
+      date: txDate,
+      account_id: targetAccountId,
+      account_name: accountName,
+      cashflow_id: txResult.cashflow_id
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST sell or redeem shares/units from an investment lot
+router.post('/:id/sell', async (req, res) => {
+  try {
+    const db = getDb();
+    ensureInvestmentColumns(db);
+    const userId = req.user?.id || 1;
+    const item = db.prepare('SELECT * FROM investments WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!item) return res.status(404).json({ error: 'Investment not found' });
+
+    let { quantity_sold, sale_price, date, account_id, description, adjust_balance } = req.body;
+    const isFd = isFdorRd(item.category);
+    const availableQty = isFd ? 1 : Number(item.quantity || 1);
+    const qtyToSell = isFd ? 1 : Number(quantity_sold || availableQty);
+
+    if (qtyToSell <= 0 || qtyToSell > availableQty) {
+      return res.status(400).json({ error: `Quantity to sell must be between 1 and ${availableQty}` });
+    }
+
+    const price = Number(sale_price) || Number(item.current_price) || Number(item.buy_price) || 0;
+    const totalProceeds = isFd ? price : (price * qtyToSell);
+    const txDate = date || new Date().toISOString().split('T')[0];
+    const targetAccountId = account_id ? Number(account_id) : (item.receiving_account_id || item.source_account_id);
+    const shouldAdjust = adjust_balance !== false && adjust_balance !== 0 && adjust_balance !== '0';
+
+    let accountName = '';
+    if (targetAccountId) {
+      const acc = db.prepare('SELECT name FROM assets WHERE id = ? AND user_id = ?').get(targetAccountId, userId);
+      if (acc) accountName = acc.name;
+    }
+
+    const txDesc = description || `Sold ${qtyToSell} ${isFd ? 'deposit' : 'unit(s)'} of ${item.asset_name} @ ₹${price}`;
+
+    db.transaction(() => {
+      // 1. Credit target account if requested
+      if (targetAccountId && shouldAdjust && totalProceeds > 0) {
+        db.prepare("UPDATE assets SET current_value = ROUND(current_value + ?, 2), updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(totalProceeds, targetAccountId, userId);
+      }
+
+      // 2. Insert into cashflow as income
+      if (totalProceeds > 0) {
+        db.prepare(`
+          INSERT INTO cashflow (
+            type, amount, category, date, description, is_recurring, frequency, account_id, adjust_balance, user_id
+          ) VALUES ('income', ?, 'Investment Redemption', ?, ?, 0, NULL, ?, ?, ?)
+        `).run(totalProceeds, txDate, txDesc, targetAccountId || null, shouldAdjust ? 1 : 0, userId);
+      }
+
+      // 3. Update or delete investment lot
+      if (qtyToSell >= availableQty) {
+        db.prepare('DELETE FROM investments WHERE id = ? AND user_id = ?').run(item.id, userId);
+      } else {
+        const remainingQty = availableQty - qtyToSell;
+        db.prepare("UPDATE investments SET quantity = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+          .run(remainingQty, item.id, userId);
+      }
+    })();
+
+    await takeSnapshot(userId);
+
+    res.json({
+      success: true,
+      message: `Sold ${qtyToSell} unit(s) of ${item.asset_name} for ₹${totalProceeds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${accountName ? ' into ' + accountName : ''}!`,
+      totalProceeds,
+      date: txDate,
+      account_id: targetAccountId,
+      account_name: accountName
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

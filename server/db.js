@@ -163,6 +163,8 @@ function initSchema(db) {
       payout_frequency TEXT DEFAULT 'Payment on Maturity',
       receiving_account_id INTEGER DEFAULT NULL,
       receiving_account_name TEXT DEFAULT '',
+      source_account_id INTEGER DEFAULT NULL,
+      source_account_name TEXT DEFAULT '',
       last_interest_date TEXT DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
@@ -404,6 +406,8 @@ function ensureInvestmentColumns(db) {
   if (!columns.includes('payout_frequency')) db.exec("ALTER TABLE investments ADD COLUMN payout_frequency TEXT DEFAULT 'Payment on Maturity'");
   if (!columns.includes('receiving_account_id')) db.exec('ALTER TABLE investments ADD COLUMN receiving_account_id INTEGER DEFAULT NULL');
   if (!columns.includes('receiving_account_name')) db.exec("ALTER TABLE investments ADD COLUMN receiving_account_name TEXT DEFAULT ''");
+  if (!columns.includes('source_account_id')) db.exec('ALTER TABLE investments ADD COLUMN source_account_id INTEGER DEFAULT NULL');
+  if (!columns.includes('source_account_name')) db.exec("ALTER TABLE investments ADD COLUMN source_account_name TEXT DEFAULT ''");
   if (!columns.includes('last_interest_date')) db.exec('ALTER TABLE investments ADD COLUMN last_interest_date TEXT DEFAULT NULL');
 }
 

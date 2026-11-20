@@ -1480,6 +1480,9 @@ function Modal({ title, fields, initial, onCancel, onSave, settings }) {
                             next.ticker = '';
                           }
                         }
+                        if (f.name === 'source_account_id' && val && !form.id && next.deduct_from_source === undefined) {
+                          next.deduct_from_source = true;
+                        }
                         setForm(next);
                       }
                     }}
@@ -1642,21 +1645,23 @@ function UpdatePriceModal({ asset, settings, onCancel, onSave }) {
 }
 
 function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, onSuccess }) {
+  const isFixed = isFixedIncome(investment.category);
   const isBondAsset = isBond(investment.category);
   const units = isBondAsset ? Number(investment.quantity || 1) : 1;
   const principal = isBondAsset
     ? Number(investment.buy_price || 0) * units
-    : Number(investment.buy_price || 0);
+    : Number(investment.buy_price || 0) * (isFixed ? 1 : Number(investment.quantity || 1));
   const rate = Number(investment.interest_rate || 0);
-  const [payoutFreq, setPayoutFreq] = useState(investment.payout_frequency || 'Monthly Payout');
+  const [payoutFreq, setPayoutFreq] = useState(investment.payout_frequency || (isFixed ? 'Monthly Payout' : 'Dividend Payout'));
 
-  // Compute standard periodic payouts
+  // Compute standard periodic payouts for fixed income
   const monthlyInterest = Number(((principal * (rate / 100)) / 12).toFixed(2));
   const quarterlyInterest = Number(((principal * (rate / 100)) / 4).toFixed(2));
   const halfYearlyInterest = Number(((principal * (rate / 100)) / 2).toFixed(2));
   const annualInterest = Number(((principal * (rate / 100))).toFixed(2));
 
   const getAmountForFreq = (f) => {
+    if (!isFixed) return '';
     if (f === 'Quarterly Payout') return quarterlyInterest;
     if (f === 'Half-Yearly Payout' || f === 'Semi-Annual Payout') return halfYearlyInterest;
     if (f === 'Annual Payout' || f === 'Yearly Payout') return annualInterest;
@@ -1664,16 +1669,25 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
   };
 
   const [interestAmount, setInterestAmount] = useState(() => {
-    const defaultAmt = getAmountForFreq(investment.payout_frequency);
-    return defaultAmt > 0 ? defaultAmt : '';
+    if (isFixed) {
+      const defaultAmt = getAmountForFreq(investment.payout_frequency);
+      return defaultAmt > 0 ? defaultAmt : '';
+    }
+    return '';
   });
   const [dateReceived, setDateReceived] = useState(() => new Date().toISOString().split('T')[0]);
-  const [targetAccountId, setTargetAccountId] = useState(() => investment.receiving_account_id || (bankAccounts?.[0]?.id || ''));
+  const [targetAccountId, setTargetAccountId] = useState(() => investment.receiving_account_id || investment.source_account_id || (bankAccounts?.[0]?.id || ''));
   const [adjustBalance, setAdjustBalance] = useState(true);
   const [memo, setMemo] = useState(() => {
     const monthName = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
-    const freqTag = (investment.payout_frequency || 'Monthly').replace(' Payout', '');
-    return `${freqTag} interest received - ${investment.asset_name} (${monthName})`;
+    if (isFixed) {
+      const freqTag = (investment.payout_frequency || 'Monthly').replace(' Payout', '');
+      return `${freqTag} interest received - ${investment.asset_name} (${monthName})`;
+    }
+    const isRealEstate = String(investment.category || '').toLowerCase().includes('real estate');
+    return isRealEstate
+      ? `Rental yield received - ${investment.asset_name} (${monthName})`
+      : `Dividend received - ${investment.asset_name} (${monthName})`;
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -1690,13 +1704,14 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!interestAmount || Number(interestAmount) <= 0) {
-      setError('Please enter a valid interest amount.');
+      setError(isFixed ? 'Please enter a valid interest amount.' : 'Please enter a valid dividend amount.');
       return;
     }
     setSubmitting(true);
     setError('');
     try {
-      const res = await api(`/investments/${investment.id}/record-interest`, {
+      const endpoint = isFixed ? `/investments/${investment.id}/record-interest` : `/investments/${investment.id}/record-dividend`;
+      const res = await api(endpoint, {
         method: 'POST',
         body: JSON.stringify({
           amount: Number(interestAmount),
@@ -1706,9 +1721,9 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
           adjust_balance: adjustBalance
         })
       });
-      onSuccess(res.message || 'Interest payout recorded successfully!');
+      onSuccess(res.message || (isFixed ? 'Interest payout recorded successfully!' : 'Dividend recorded successfully!'));
     } catch (err) {
-      setError(err.message || 'Failed to record interest.');
+      setError(err.message || 'Failed to record payout.');
       setSubmitting(false);
     }
   };
@@ -1718,15 +1733,17 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
       <form className="modal" onSubmit={handleSubmit} onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>💰</span> Record Interest Received
+            <span>💰</span> {isFixed ? 'Record Interest Received' : 'Record Dividend / Return Received'}
           </h2>
           <span className="badge" style={{ background: '#064e3b', color: '#6ee7b7', border: '1px solid #059669', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}>
-            {isRd(investment.category) ? 'Recurring Deposit (RD)' : isFd(investment.category) ? 'Fixed Deposit (FD)' : isBond(investment.category) ? 'Bond' : 'Investment'} • {payoutFreq}
+            {isRd(investment.category) ? 'Recurring Deposit (RD)' : isFd(investment.category) ? 'Fixed Deposit (FD)' : isBond(investment.category) ? 'Bond' : investment.category} • {payoutFreq}
           </span>
         </div>
         
         <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#94a3b8' }}>
-          Mark this period&apos;s interest as received and automatically credit your bank account balance.
+          {isFixed
+            ? 'Mark this period’s interest as received and automatically credit your bank account balance.'
+            : 'Mark dividend or distribution as received and automatically credit your receiving account balance.'}
         </p>
 
         {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
@@ -1741,14 +1758,16 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
             </div>
             <div>
               <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>
-                {isBond(investment.category) ? `TOTAL INVESTED (${units} ${units === 1 ? 'Unit' : 'Units'})` : 'PRINCIPAL AMOUNT'}
+                {isBond(investment.category) ? `TOTAL INVESTED (${units} ${units === 1 ? 'Unit' : 'Units'})` : isFixed ? 'PRINCIPAL AMOUNT' : 'TOTAL INVESTED'}
               </span>
               <strong style={{ color: '#38bdf8' }}>{money(principal, settings)}</strong>
             </div>
-            <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>INTEREST / COUPON RATE</span>
-              <strong style={{ color: '#10b981' }}>{rate}% p.a.</strong>
-            </div>
+            {isFixed && (
+              <div>
+                <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>INTEREST / COUPON RATE</span>
+                <strong style={{ color: '#10b981' }}>{rate}% p.a.</strong>
+              </div>
+            )}
             <div>
               <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>LAST RECEIVED</span>
               <span style={{ color: investment.last_interest_date ? '#e2e8f0' : '#64748b' }}>
@@ -1759,81 +1778,83 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
         </div>
 
         {/* Payout Options: Quick selection for same fixed amounts */}
-        <div style={{ marginBottom: '16px', background: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px 14px' }}>
-          <span style={{ fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>
-            Select Payout Frequency to auto-fill standard amount:
-          </span>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => handleSelectFrequency('Monthly Payout')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '12px',
-                borderRadius: '6px',
-                border: payoutFreq === 'Monthly Payout' ? '1px solid #10b981' : '1px solid #334155',
-                background: payoutFreq === 'Monthly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
-                color: payoutFreq === 'Monthly Payout' ? '#10b981' : '#94a3b8',
-                cursor: 'pointer',
-                fontWeight: payoutFreq === 'Monthly Payout' ? 600 : 400
-              }}
-            >
-              📅 Monthly ({money(monthlyInterest, settings)})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectFrequency('Quarterly Payout')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '12px',
-                borderRadius: '6px',
-                border: payoutFreq === 'Quarterly Payout' ? '1px solid #10b981' : '1px solid #334155',
-                background: payoutFreq === 'Quarterly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
-                color: payoutFreq === 'Quarterly Payout' ? '#10b981' : '#94a3b8',
-                cursor: 'pointer',
-                fontWeight: payoutFreq === 'Quarterly Payout' ? 600 : 400
-              }}
-            >
-              📊 Quarterly ({money(quarterlyInterest, settings)})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectFrequency('Half-Yearly Payout')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '12px',
-                borderRadius: '6px',
-                border: payoutFreq === 'Half-Yearly Payout' ? '1px solid #10b981' : '1px solid #334155',
-                background: payoutFreq === 'Half-Yearly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
-                color: payoutFreq === 'Half-Yearly Payout' ? '#10b981' : '#94a3b8',
-                cursor: 'pointer',
-                fontWeight: payoutFreq === 'Half-Yearly Payout' ? 600 : 400
-              }}
-            >
-              🌓 Half-Yearly ({money(halfYearlyInterest, settings)})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectFrequency('Annual Payout')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '12px',
-                borderRadius: '6px',
-                border: payoutFreq === 'Annual Payout' ? '1px solid #10b981' : '1px solid #334155',
-                background: payoutFreq === 'Annual Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
-                color: payoutFreq === 'Annual Payout' ? '#10b981' : '#94a3b8',
-                cursor: 'pointer',
-                fontWeight: payoutFreq === 'Annual Payout' ? 600 : 400
-              }}
-            >
-              🗓️ Annual ({money(annualInterest, settings)})
-            </button>
+        {isFixed && rate > 0 && (
+          <div style={{ marginBottom: '16px', background: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px 14px' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>
+              Select Payout Frequency to auto-fill standard amount:
+            </span>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => handleSelectFrequency('Monthly Payout')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: payoutFreq === 'Monthly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                  background: payoutFreq === 'Monthly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                  color: payoutFreq === 'Monthly Payout' ? '#10b981' : '#94a3b8',
+                  cursor: 'pointer',
+                  fontWeight: payoutFreq === 'Monthly Payout' ? 600 : 400
+                }}
+              >
+                📅 Monthly ({money(monthlyInterest, settings)})
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectFrequency('Quarterly Payout')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: payoutFreq === 'Quarterly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                  background: payoutFreq === 'Quarterly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                  color: payoutFreq === 'Quarterly Payout' ? '#10b981' : '#94a3b8',
+                  cursor: 'pointer',
+                  fontWeight: payoutFreq === 'Quarterly Payout' ? 600 : 400
+                }}
+              >
+                📊 Quarterly ({money(quarterlyInterest, settings)})
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectFrequency('Half-Yearly Payout')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: payoutFreq === 'Half-Yearly Payout' ? '1px solid #10b981' : '1px solid #334155',
+                  background: payoutFreq === 'Half-Yearly Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                  color: payoutFreq === 'Half-Yearly Payout' ? '#10b981' : '#94a3b8',
+                  cursor: 'pointer',
+                  fontWeight: payoutFreq === 'Half-Yearly Payout' ? 600 : 400
+                }}
+              >
+                🌓 Half-Yearly ({money(halfYearlyInterest, settings)})
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectFrequency('Annual Payout')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: payoutFreq === 'Annual Payout' ? '1px solid #10b981' : '1px solid #334155',
+                  background: payoutFreq === 'Annual Payout' ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                  color: payoutFreq === 'Annual Payout' ? '#10b981' : '#94a3b8',
+                  cursor: 'pointer',
+                  fontWeight: payoutFreq === 'Annual Payout' ? 600 : 400
+                }}
+              >
+                🗓️ Annual ({money(annualInterest, settings)})
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
           <label>
-            <span>Interest Amount Received ({settings?.currency_symbol || '₹'})</span>
+            <span>{isFixed ? 'Interest Amount Received' : 'Dividend / Payout Amount'} ({settings?.currency_symbol || '₹'})</span>
             <input
               type="number"
               step="any"
@@ -1856,7 +1877,7 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
           </label>
 
           <label style={{ gridColumn: 'span 2' }}>
-            <span>Receiving Bank Account</span>
+            <span>Receiving Account (Destination)</span>
             <select
               value={targetAccountId}
               onChange={e => setTargetAccountId(e.target.value)}
@@ -1888,7 +1909,7 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
               style={{ width: 'auto', margin: 0 }}
             />
             <span style={{ fontSize: '13px', color: '#e2e8f0' }}>
-              Automatically credit receiving bank account balance (+{settings?.currency_symbol || '₹'}{interestAmount || 0})
+              Automatically credit receiving account balance (+{settings?.currency_symbol || '₹'}{interestAmount || 0}) and log in Cashflow
             </span>
           </label>
         </div>
@@ -1898,7 +1919,182 @@ function ReceiveInterestModal({ investment, bankAccounts, settings, onCancel, on
             Cancel
           </button>
           <button type="submit" style={{ background: '#059669', color: '#fff' }} disabled={submitting}>
-            {submitting ? 'Recording...' : 'Confirm & Record Interest'}
+            {submitting ? 'Recording...' : isFixed ? 'Confirm & Record Interest' : 'Confirm & Record Dividend'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SellInvestmentModal({ investment, bankAccounts, settings, onCancel, onSuccess }) {
+  const isFd = isFdorRd(investment.category);
+  const maxQty = isFd ? 1 : Number(investment.quantity || 1);
+  const [qty, setQty] = useState(maxQty);
+  const [price, setPrice] = useState(investment.current_price || investment.buy_price || 0);
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [targetAccountId, setTargetAccountId] = useState(() => investment.receiving_account_id || investment.source_account_id || (bankAccounts?.[0]?.id || ''));
+  const [adjustBalance, setAdjustBalance] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const numQty = isFd ? 1 : Number(qty) || 0;
+  const numPrice = Number(price) || 0;
+  const totalProceeds = isFd ? numPrice : (numQty * numPrice);
+  const totalCost = isFd ? Number(investment.buy_price || 0) : (numQty * Number(investment.buy_price || 0));
+  const realizedPnl = totalProceeds - totalCost;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (numQty <= 0 || numQty > maxQty) {
+      setError(`Quantity must be between 1 and ${maxQty}`);
+      return;
+    }
+    if (numPrice <= 0) {
+      setError('Sale price must be greater than 0');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await api(`/investments/${investment.id}/sell`, {
+        method: 'POST',
+        body: JSON.stringify({
+          quantity_sold: numQty,
+          sale_price: numPrice,
+          date,
+          account_id: targetAccountId ? Number(targetAccountId) : null,
+          description: `Sold ${numQty} ${isFd ? 'deposit' : 'unit(s)'} of ${investment.asset_name} @ ${money(numPrice, settings)}`,
+          adjust_balance: adjustBalance
+        })
+      });
+      onSuccess(res.message || 'Investment sold / redeemed successfully!');
+    } catch (err) {
+      setError(err.message || 'Failed to sell investment.');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal" onSubmit={handleSubmit} onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>💸</span> Sell / Redeem Investment
+          </h2>
+          <span className="badge" style={{ background: '#78350f', color: '#fde68a', border: '1px solid #d97706', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}>
+            {investment.category}
+          </span>
+        </div>
+        <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#94a3b8' }}>
+          Liquidate or redeem units and automatically credit sale proceeds to your receiving account.
+        </p>
+
+        {error && <div className="error" style={{ marginBottom: '14px' }}>{error}</div>}
+
+        <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #334155', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>ASSET NAME</span>
+              <strong style={{ color: '#f8fafc' }}>{investment.asset_name}</strong>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>AVAILABLE UNITS</span>
+              <strong style={{ color: '#38bdf8' }}>{maxQty}</strong>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>AVG BUY PRICE</span>
+              <span style={{ color: '#cbd5e1' }}>{money(investment.buy_price, settings)}</span>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '11px' }}>CURRENT MARKET PRICE</span>
+              <span style={{ color: '#10b981' }}>{money(investment.current_price, settings)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+          {!isFd && (
+            <label>
+              <span>Units / Quantity to Sell</span>
+              <input
+                type="number"
+                step="any"
+                min="0.0001"
+                max={maxQty}
+                required
+                value={qty}
+                onChange={e => setQty(e.target.value)}
+              />
+            </label>
+          )}
+
+          <label style={isFd ? { gridColumn: 'span 2' } : {}}>
+            <span>{isFd ? 'Maturity / Sale Amount Received' : `Sale Price per Unit (${settings?.currency_symbol || '₹'})`}</span>
+            <input
+              type="number"
+              step="any"
+              required
+              value={price}
+              onChange={e => setPrice(e.target.value)}
+            />
+          </label>
+
+          <label>
+            <span>Sale / Redemption Date</span>
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={e => setDate(e.target.value)}
+            />
+          </label>
+
+          <label style={{ gridColumn: 'span 2' }}>
+            <span>Receiving Account (Destination)</span>
+            <select
+              value={targetAccountId}
+              onChange={e => setTargetAccountId(e.target.value)}
+            >
+              <option value="">-- Select Receiving Account --</option>
+              {(bankAccounts || []).map(b => (
+                <option key={b.id} value={b.id}>
+                  {b.name} ({money(b.current_value, settings)})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div style={{ gridColumn: 'span 2', background: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '8px', padding: '12px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '13px' }}>
+              <span style={{ color: '#94a3b8' }}>Total Sale Proceeds:</span>
+              <strong style={{ color: '#38bdf8', fontSize: '15px' }}>{money(totalProceeds, settings)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+              <span style={{ color: '#94a3b8' }}>Estimated Realized P&L:</span>
+              <strong style={{ color: realizedPnl >= 0 ? '#10b981' : '#ef4444' }}>
+                {(realizedPnl > 0 ? '+' : '') + money(realizedPnl, settings)}
+              </strong>
+            </div>
+          </div>
+
+          <label style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+            <input
+              type="checkbox"
+              checked={adjustBalance}
+              onChange={e => setAdjustBalance(e.target.checked)}
+              style={{ width: 'auto', margin: 0 }}
+            />
+            <span style={{ fontSize: '13px', color: '#e2e8f0' }}>
+              Credit {money(totalProceeds, settings)} to account balance and log income in Cashflow
+            </span>
+          </label>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: '20px' }}>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" disabled={submitting} style={{ background: '#d97706', borderColor: '#b45309' }}>
+            {submitting ? 'Processing...' : 'Confirm Sale / Redemption'}
           </button>
         </div>
       </form>
@@ -2277,6 +2473,24 @@ function Dashboard({ settings, categories }) {
     { name: 'buy_price', label: (form) => isRd(form?.category) ? 'Monthly Deposit (₹)' : isFd(form?.category) ? 'Principal Amount (₹)' : isBond(form?.category) ? 'Price per Unit (₹)' : 'Buy Price', type: 'number' },
     { name: 'current_price', label: (form) => isFdorRd(form?.category) ? 'Current / Maturity Value' : isBond(form?.category) ? 'Current Price per Unit' : 'Current Price', type: 'number' },
     { name: 'buy_date', label: (form) => isRd(form?.category) ? 'Start Date' : isFd(form?.category) ? 'Deposit Date' : isBond(form?.category) ? 'Investment Date' : 'Buy Date', type: 'date' },
+    {
+      name: 'source_account_id',
+      label: 'Fund Invested From',
+      type: 'select',
+      options: (data.assets || []).map(a => ({ value: a.id, label: `${a.name} (${money(a.current_value, settings)})` }))
+    },
+    {
+      name: 'deduct_from_source',
+      label: 'Deduct amount from source account balance & record in Cashflow',
+      type: 'checkbox',
+      condition: (form) => Boolean(form?.source_account_id)
+    },
+    {
+      name: 'receiving_account_id',
+      label: 'Fund Returns To (Dividends & Maturity)',
+      type: 'select',
+      options: (data.assets || []).map(a => ({ value: a.id, label: `${a.name} (${money(a.current_value, settings)})` }))
+    },
     { name: 'tenure', label: 'Tenure', placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 2 Years' : isBond(form?.category) ? 'e.g. 2 Years, 36 Months' : 'e.g. 1 Year, 18 Months', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
     { name: 'interest_rate', label: (form) => isBond(form?.category) ? 'Interest / Coupon Rate (%)' : 'Interest Rate (%)', type: 'number', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
     { name: 'maturity_date', label: 'Maturity Date', type: 'date', condition: (form) => isFdorRd(form?.category) || isBond(form?.category) },
@@ -3163,6 +3377,7 @@ function PortfolioTracker({ settings, categories }) {
   const [editing, setEditing] = useState(null);
   const [updatingPrice, setUpdatingPrice] = useState(null);
   const [receiveInterestModal, setReceiveInterestModal] = useState(null);
+  const [sellLotModal, setSellLotModal] = useState(null);
   const [error, setError] = useState('');
   const [graphRefresh, setGraphRefresh] = useState(0);
   const [expandedAsset, setExpandedAsset] = useState(null);
@@ -3206,10 +3421,6 @@ function PortfolioTracker({ settings, categories }) {
       if (!payload.current_price && payload.buy_price) {
         payload.current_price = payload.buy_price;
       }
-      if (payload.receiving_account_id) {
-        const match = bankAccounts.find(b => String(b.id) === String(payload.receiving_account_id));
-        if (match) payload.receiving_account_name = match.name;
-      }
     } else if (isBond(payload.category)) {
       payload.ticker = '';
       if (!payload.quantity || Number(payload.quantity) <= 0) {
@@ -3218,11 +3429,22 @@ function PortfolioTracker({ settings, categories }) {
       if (!payload.current_price && payload.buy_price) {
         payload.current_price = payload.buy_price;
       }
-      if (payload.receiving_account_id) {
-        const match = bankAccounts.find(b => String(b.id) === String(payload.receiving_account_id));
-        if (match) payload.receiving_account_name = match.name;
-      }
     }
+
+    if (payload.source_account_id) {
+      const match = bankAccounts.find(b => String(b.id) === String(payload.source_account_id));
+      if (match) payload.source_account_name = match.name;
+    } else {
+      payload.source_account_name = '';
+    }
+
+    if (payload.receiving_account_id) {
+      const match = bankAccounts.find(b => String(b.id) === String(payload.receiving_account_id));
+      if (match) payload.receiving_account_name = match.name;
+    } else {
+      payload.receiving_account_name = '';
+    }
+
     if (form.id) await api(`/investments/${form.id}`, { method: 'PUT', body: JSON.stringify(payload) });
     else await api('/investments', { method: 'POST', body: JSON.stringify(payload) });
     setEditing(null);
@@ -3297,6 +3519,7 @@ function PortfolioTracker({ settings, categories }) {
           (l.ticker || '').toLowerCase().includes(q) ||
           (l.notes || '').toLowerCase().includes(q) ||
           (l.tenure || '').toLowerCase().includes(q) ||
+          (l.source_account_name || '').toLowerCase().includes(q) ||
           (l.receiving_account_name || '').toLowerCase().includes(q)
         );
         if (!matchName && !matchCat && !matchCurr && !matchLots) return false;
@@ -3379,6 +3602,30 @@ function PortfolioTracker({ settings, categories }) {
       type: 'date'
     },
     {
+      name: 'source_account_id',
+      label: (form) => isFdorRd(form?.category)
+        ? 'Fund Invested From (Bank Account)'
+        : isBond(form?.category)
+          ? 'Fund Invested From (Bank / Broker Account)'
+          : 'Fund Invested From (Source Bank / Demat Account)',
+      type: 'select',
+      options: bankAccountOptions
+    },
+    {
+      name: 'deduct_from_source',
+      label: (form) => 'Deduct amount from source account balance & record in Cashflow',
+      type: 'checkbox',
+      condition: (form) => !form?.id && Boolean(form?.source_account_id)
+    },
+    {
+      name: 'receiving_account_id',
+      label: (form) => (isFdorRd(form?.category) || isBond(form?.category))
+        ? 'Fund Returns To (Interest & Maturity Account)'
+        : 'Fund Returns To (Dividends & Sale Proceeds Account)',
+      type: 'select',
+      options: bankAccountOptions
+    },
+    {
       name: 'tenure',
       label: 'Tenure',
       placeholder: (form) => isRd(form?.category) ? 'e.g. 12 Months, 24 Months, 2 Years' : isBond(form?.category) ? 'e.g. 2 Years, 36 Months' : 'e.g. 1 Year, 18 Months, 555 Days',
@@ -3395,13 +3642,6 @@ function PortfolioTracker({ settings, categories }) {
       label: 'Interest Payout Option',
       type: 'select',
       options: ['Payment on Maturity', 'Monthly Payout', 'Quarterly Payout', 'Half-Yearly Payout', 'Annual Payout'],
-      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
-    },
-    {
-      name: 'receiving_account_id',
-      label: 'Receiving Bank Account (Interest & Maturity)',
-      type: 'select',
-      options: bankAccountOptions,
       condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
     },
     { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
@@ -3585,30 +3825,49 @@ function PortfolioTracker({ settings, categories }) {
                       </td>
                       <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          {p.lots.some(l => hasPeriodicPayout(p.category, l.payout_frequency)) && (
-                            <button
-                              className="icon-btn"
-                              style={{
-                                width: 'auto',
-                                padding: '4px 10px',
-                                fontSize: '12px',
-                                background: 'linear-gradient(135deg, #059669, #047857)',
-                                color: '#fff',
-                                border: 'none',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                cursor: 'pointer'
-                              }}
-                              title="Record interest received"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const lotToReceive = p.lots.find(l => hasPeriodicPayout(p.category, l.payout_frequency)) || p.lots[0];
-                                setReceiveInterestModal(lotToReceive);
-                              }}
-                            >
-                              💰 Receive Interest
-                            </button>
-                          )}
+                          <button
+                            className="icon-btn"
+                            style={{
+                              width: 'auto',
+                              padding: '4px 10px',
+                              fontSize: '12px',
+                              background: 'linear-gradient(135deg, #059669, #047857)',
+                              color: '#fff',
+                              border: 'none',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              cursor: 'pointer'
+                            }}
+                            title={isFixedIncome(p.category) ? "Record interest received" : "Record dividend received"}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const lotToReceive = p.lots.find(l => hasPeriodicPayout(p.category, l.payout_frequency)) || p.lots[0];
+                              setReceiveInterestModal(lotToReceive);
+                            }}
+                          >
+                            {isFixedIncome(p.category) ? '💰 Receive Interest' : '💰 Record Dividend'}
+                          </button>
+                          <button
+                            className="icon-btn"
+                            style={{
+                              width: 'auto',
+                              padding: '4px 10px',
+                              fontSize: '12px',
+                              background: 'linear-gradient(135deg, #d97706, #b45309)',
+                              color: '#fff',
+                              border: 'none',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              cursor: 'pointer'
+                            }}
+                            title="Sell or redeem units from this holding"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSellLotModal(p.lots[0]);
+                            }}
+                          >
+                            💸 Sell
+                          </button>
                           <button className="icon-btn edit" style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} onClick={(e) => {
                             e.stopPropagation();
                             setUpdatingPrice(p);
@@ -3633,11 +3892,12 @@ function PortfolioTracker({ settings, categories }) {
                         <tr key={lot.id} style={{ backgroundColor: 'rgba(0,0,0,0.1)', borderBottom: '1px solid #1e293b' }}>
                           <td colSpan="2" style={{ paddingLeft: '40px', color: '#94a3b8', fontSize: '13px' }}>
                             ↳ {formatDate(lot.buy_date, settings)} {lot.is_sip ? '(SIP)' : ''} {lot.platform ? `via ${lot.platform}` : ''}
+                            {lot.source_account_name ? ` • From: ${lot.source_account_name}` : ''}
+                            {lot.receiving_account_name ? ` • To: ${lot.receiving_account_name}` : ''}
                             {lot.interest_rate > 0 ? ` • ${lot.interest_rate}% p.a.` : ''}
                             {lot.tenure ? ` • Tenure: ${lot.tenure}` : ''}
                             {lot.maturity_date ? ` • Mat: ${formatDate(lot.maturity_date, settings)}` : ''}
                             {lot.payout_frequency ? ` • ${lot.payout_frequency}` : ''}
-                            {lot.receiving_account_name ? ` • To: ${lot.receiving_account_name}` : ''}
                             {lot.last_interest_date ? ` • Last Recv: ${formatDate(lot.last_interest_date, settings)}` : ''}
                           </td>
                           <td style={{ textAlign: 'right', fontSize: '13px' }}>
@@ -3673,26 +3933,42 @@ function PortfolioTracker({ settings, categories }) {
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              {hasPeriodicPayout(p.category, lot.payout_frequency) && (
-                                <button
-                                  className="icon-btn"
-                                  style={{
-                                    width: 'auto',
-                                    padding: '2px 8px',
-                                    fontSize: '11px',
-                                    background: '#059669',
-                                    color: '#fff',
-                                    border: 'none',
-                                    fontWeight: 600,
-                                    borderRadius: '4px',
-                                    cursor: 'pointer'
-                                  }}
-                                  title="Record periodic interest received"
-                                  onClick={() => setReceiveInterestModal(lot)}
-                                >
-                                  💰 Receive Interest
-                                </button>
-                              )}
+                              <button
+                                className="icon-btn"
+                                style={{
+                                  width: 'auto',
+                                  padding: '2px 8px',
+                                  fontSize: '11px',
+                                  background: '#059669',
+                                  color: '#fff',
+                                  border: 'none',
+                                  fontWeight: 600,
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                                title={isFixedIncome(p.category) ? "Record periodic interest received" : "Record dividend received"}
+                                onClick={() => setReceiveInterestModal(lot)}
+                              >
+                                {isFixedIncome(p.category) ? '💰 Receive Interest' : '💰 Dividend'}
+                              </button>
+                              <button
+                                className="icon-btn"
+                                style={{
+                                  width: 'auto',
+                                  padding: '2px 8px',
+                                  fontSize: '11px',
+                                  background: '#d97706',
+                                  color: '#fff',
+                                  border: 'none',
+                                  fontWeight: 600,
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                                title="Sell or redeem units from this lot"
+                                onClick={() => setSellLotModal(lot)}
+                              >
+                                💸 Sell
+                              </button>
                               <button className="icon-btn edit" onClick={() => setEditing(lot)}>
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                               </button>
@@ -3765,6 +4041,20 @@ function PortfolioTracker({ settings, categories }) {
           onSuccess={async (msg) => {
             setReceiveInterestModal(null);
             await load();
+            alert(msg);
+          }}
+        />
+      )}
+      {sellLotModal && (
+        <SellInvestmentModal
+          investment={sellLotModal}
+          bankAccounts={bankAccounts}
+          settings={settings}
+          onCancel={() => setSellLotModal(null)}
+          onSuccess={async (msg) => {
+            setSellLotModal(null);
+            await load();
+            setGraphRefresh((value) => value + 1);
             alert(msg);
           }}
         />
