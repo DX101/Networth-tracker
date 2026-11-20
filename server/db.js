@@ -630,6 +630,7 @@ function seedDefaultCategories(db) {
   // Investment categories
   insertCat('Stocks', 'investment');
   insertCat('Mutual Funds', 'investment');
+  insertCat('National Pension System (NPS)', 'investment');
   insertCat('Crypto', 'investment');
   insertCat('Fixed Deposit (FD)', 'investment');
   insertCat('Recurring Deposit (RD)', 'investment');

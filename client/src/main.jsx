@@ -40,7 +40,7 @@ const DEFAULT_CATEGORIES = {
   liability: ['Home Loan', 'Car Loan', 'Personal Loan', 'Credit Card', 'Other Debt'],
   income: ['Salary', 'Freelance', 'Rental', 'Dividends', 'Interest', 'Business', 'Other'],
   expense: ['Housing', 'Food', 'Transport', 'EMI/Loan Payments', 'Subscriptions', 'Medical', 'Utilities', 'Entertainment', 'Shopping', 'Education', 'Insurance', 'Other'],
-  investment: ['Stocks', 'Mutual Funds', 'Crypto', 'Fixed Deposit (FD)', 'Recurring Deposit (RD)', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
+  investment: ['Stocks', 'Mutual Funds', 'National Pension System (NPS)', 'Crypto', 'Fixed Deposit (FD)', 'Recurring Deposit (RD)', 'Bonds', 'Real Estate', 'Gold', 'SIP'],
   transfer: ['Transfer', 'Trading Account Fund', 'Stock Broker Deposit', 'Investment Deposit', 'ATM Cash Withdrawal', 'Wallet Top-up', 'Credit Card Payment', 'Savings Transfer', 'Other Transfer']
 };
 
@@ -330,6 +330,12 @@ function isFdorRd(category) {
 
 function isFixedIncome(category) {
   return isFd(category) || isRd(category) || isBond(category);
+}
+
+function isNps(category) {
+  if (!category) return false;
+  const s = String(category).trim().toLowerCase();
+  return s === 'nps' || s.includes('national pension') || s.includes('nps');
 }
 
 function hasPeriodicPayout(category, payout_frequency) {
@@ -2800,6 +2806,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
   const [fetchingRates, setFetchingRates] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
   const settingsTabsRef = useRef(null);
   const catTabsRef = useRef(null);
 
@@ -3132,10 +3139,24 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                 }}>Connect Google Drive</button>
               ) : (
                 <>
-                  <button className="cloud-btn primary" onClick={async () => {
-                    const res = await api('/backup/upload/google', { method: 'POST' });
-                    if (res.success) alert('Backup successful! Database backed up to Google Drive.');
-                  }}>Backup Now</button>
+                  <button
+                    className="cloud-btn primary"
+                    disabled={backingUp}
+                    onClick={async () => {
+                      setBackingUp(true);
+                      try {
+                        const res = await api('/backup/upload/google', { method: 'POST' });
+                        if (res.success) alert('✓ Backup successful! Database backed up to Google Drive.');
+                        else alert('Backup failed: ' + (res.error || 'Unknown error'));
+                      } catch (err) {
+                        alert('Backup failed: ' + err.message);
+                      } finally {
+                        setBackingUp(false);
+                      }
+                    }}
+                  >
+                    {backingUp ? 'Backing up...' : 'Backup Now'}
+                  </button>
                   <button className="cloud-btn secondary" onClick={async () => {
                     if (window.confirm('Restore latest backup from Google Drive? This will safely snapshot your current database and replace it with the latest cloud backup.')) {
                       try {
@@ -3441,6 +3462,14 @@ function PortfolioTracker({ settings, categories }) {
       if (!payload.current_price && payload.buy_price) {
         payload.current_price = payload.buy_price;
       }
+    } else if (isNps(payload.category)) {
+      payload.ticker = '';
+      if (!payload.quantity || Number(payload.quantity) <= 0) {
+        payload.quantity = 1;
+      }
+      if (!payload.current_price && payload.buy_price) {
+        payload.current_price = payload.buy_price;
+      }
     }
 
     if (payload.source_account_id) {
@@ -3559,19 +3588,19 @@ function PortfolioTracker({ settings, categories }) {
   const fields = [
     {
       name: 'asset_name',
-      label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : isBond(form?.category) ? 'Bond / Debenture Name' : 'Asset Name',
-      placeholder: (form) => isRd(form?.category) ? 'e.g. SBI Monthly RD, ICICI RD' : isFd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI FD' : isBond(form?.category) ? 'e.g. Sindhuja Microcredit, GOI Bond 7.18%, Tata Capital NCD' : 'e.g. Apple, Bitcoin, Reliance'
+      label: (form) => isRd(form?.category) ? 'Recurring Deposit Name' : isFd(form?.category) ? 'Fixed Deposit Name' : isBond(form?.category) ? 'Bond / Debenture Name' : isNps(form?.category) ? 'Scheme / Tier Name (NPS)' : 'Asset Name',
+      placeholder: (form) => isRd(form?.category) ? 'e.g. SBI Monthly RD, ICICI RD' : isFd(form?.category) ? 'e.g. HDFC 1-Year FD, SBI FD' : isBond(form?.category) ? 'e.g. Sindhuja Microcredit, GOI Bond 7.18%, Tata Capital NCD' : isNps(form?.category) ? 'e.g. NPS Tier-I (HDFC Pension Fund), NPS Tier-II' : 'e.g. Apple, Bitcoin, Reliance'
     },
     { name: 'category', label: 'Category', type: 'select', options: categories.investment },
     {
       name: 'platform',
-      label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : isBond(form?.category) ? 'Platform / Broker' : 'Platform',
-      placeholder: (form) => isFdorRd(form?.category) ? 'e.g. HDFC Bank, SBI, ICICI' : isBond(form?.category) ? 'e.g. Wint Wealth, Zerodha, Grip Invest' : 'e.g. Zerodha, Binance'
+      label: (form) => isFdorRd(form?.category) ? 'Bank / Institution' : isBond(form?.category) ? 'Platform / Broker' : isNps(form?.category) ? 'CRA / Platform / POP' : 'Platform',
+      placeholder: (form) => isFdorRd(form?.category) ? 'e.g. HDFC Bank, SBI, ICICI' : isBond(form?.category) ? 'e.g. Wint Wealth, Zerodha, Grip Invest' : isNps(form?.category) ? 'e.g. Protean (NSDL CRA), KFintech, CAMS, Zerodha, Groww' : 'e.g. Zerodha, Binance'
     },
     {
       name: 'quantity',
-      label: (form) => isBond(form?.category) ? 'Units' : 'Quantity',
-      placeholder: (form) => isBond(form?.category) ? 'e.g. 10' : 'e.g. 5',
+      label: (form) => isBond(form?.category) ? 'Units' : isNps(form?.category) ? 'Units / Quantity (Use 1 for Total Value)' : 'Quantity',
+      placeholder: (form) => isBond(form?.category) ? 'e.g. 10' : isNps(form?.category) ? 'e.g. 1 (or total units)' : 'e.g. 5',
       type: 'number',
       condition: (form) => !isFdorRd(form?.category)
     },
@@ -3583,7 +3612,9 @@ function PortfolioTracker({ settings, categories }) {
           ? `Principal / Deposit Amount (${settings?.currency_symbol || '₹'})`
           : isBond(form?.category)
             ? `Price per Unit / Face Value (${settings?.currency_symbol || '₹'})`
-            : 'Buy Price',
+            : isNps(form?.category)
+              ? `Total Contributed / Invested (${settings?.currency_symbol || '₹'})`
+              : 'Buy Price',
       type: 'number'
     },
     {
@@ -3592,14 +3623,16 @@ function PortfolioTracker({ settings, categories }) {
         ? `Current / Maturity Value (${settings?.currency_symbol || '₹'})`
         : isBond(form?.category)
           ? `Current Price per Unit (${settings?.currency_symbol || '₹'})`
-          : 'Current Price',
+          : isNps(form?.category)
+            ? `Current Valuation / Corpus (${settings?.currency_symbol || '₹'})`
+            : 'Current Price',
       type: 'number'
     },
     {
       name: 'ticker',
       label: 'Ticker Symbol (Yahoo Finance)',
       placeholder: 'e.g. RELIANCE.NS, AAPL',
-      condition: (form) => !isFdorRd(form?.category) && !isBond(form?.category)
+      condition: (form) => !isFdorRd(form?.category) && !isBond(form?.category) && !isNps(form?.category)
     },
     {
       name: 'interest_rate',
@@ -3610,7 +3643,7 @@ function PortfolioTracker({ settings, categories }) {
     },
     {
       name: 'buy_date',
-      label: (form) => isRd(form?.category) ? 'Start / Deposit Date' : isFd(form?.category) ? 'Deposit Date' : isBond(form?.category) ? 'Investment / Purchase Date' : 'Buy Date',
+      label: (form) => isRd(form?.category) ? 'Start / Deposit Date' : isFd(form?.category) ? 'Deposit Date' : isBond(form?.category) ? 'Investment / Purchase Date' : isNps(form?.category) ? 'Contribution / Start Date' : 'Buy Date',
       type: 'date'
     },
     {
@@ -3619,7 +3652,9 @@ function PortfolioTracker({ settings, categories }) {
         ? 'Fund Invested From (Bank Account)'
         : isBond(form?.category)
           ? 'Fund Invested From (Bank / Broker Account)'
-          : 'Fund Invested From (Source Bank / Demat Account)',
+          : isNps(form?.category)
+            ? 'Fund Invested From (Bank Account)'
+            : 'Fund Invested From (Source Bank / Demat Account)',
       type: 'select',
       options: bankAccountOptions
     },
@@ -3633,7 +3668,9 @@ function PortfolioTracker({ settings, categories }) {
       name: 'receiving_account_id',
       label: (form) => (isFdorRd(form?.category) || isBond(form?.category))
         ? 'Fund Returns To (Interest & Maturity Account)'
-        : 'Fund Returns To (Dividends & Sale Proceeds Account)',
+        : isNps(form?.category)
+          ? 'Retirement / Annuity Payout Account'
+          : 'Fund Returns To (Dividends & Sale Proceeds Account)',
       type: 'select',
       options: bankAccountOptions
     },
@@ -3645,9 +3682,9 @@ function PortfolioTracker({ settings, categories }) {
     },
     {
       name: 'maturity_date',
-      label: 'Maturity Date',
+      label: (form) => isNps(form?.category) ? 'Retirement Date (Age 60 / Superannuation)' : 'Maturity Date',
       type: 'date',
-      condition: (form) => isFdorRd(form?.category) || isBond(form?.category)
+      condition: (form) => isFdorRd(form?.category) || isBond(form?.category) || isNps(form?.category)
     },
     {
       name: 'payout_frequency',
@@ -3659,11 +3696,15 @@ function PortfolioTracker({ settings, categories }) {
     { name: 'currency', label: 'Currency', type: 'select', options: Object.keys(CURRENCIES) },
     {
       name: 'is_sip',
-      label: (form) => isRd(form?.category) ? 'Monthly Recurring Installment (RD)' : 'Is SIP?',
+      label: (form) => isNps(form?.category) ? 'Monthly Recurring Contribution (SIP)' : isRd(form?.category) ? 'Monthly Recurring Installment (RD)' : 'Is SIP?',
       type: 'checkbox',
       condition: (form) => (isRd(form?.category) || !isFdorRd(form?.category)) && !isBond(form?.category)
     },
-    { name: 'notes', label: 'Notes' }
+    {
+      name: 'notes',
+      label: 'Notes',
+      placeholder: (form) => isNps(form?.category) ? 'e.g. PRAN: 110123456789 • 75% Equity (E), 25% Corporate Debt (C)' : 'Notes'
+    }
   ];
 
   const performanceConfig = {
@@ -4023,7 +4064,7 @@ function PortfolioTracker({ settings, categories }) {
 
       {editing && (
         <Modal 
-          title={`${editing.id ? 'Edit' : 'Add'} ${isRd(editing.category) ? 'Recurring Deposit (RD)' : isFd(editing.category) ? 'Fixed Deposit (FD)' : isBond(editing.category) ? 'Bond / Debenture' : 'Investment Lot'}`} 
+          title={`${editing.id ? 'Edit' : 'Add'} ${isRd(editing.category) ? 'Recurring Deposit (RD)' : isFd(editing.category) ? 'Fixed Deposit (FD)' : isBond(editing.category) ? 'Bond / Debenture' : isNps(editing.category) ? 'National Pension System (NPS)' : 'Investment Lot'}`} 
           fields={fields} 
           initial={editing} 
           onCancel={() => setEditing(null)} 

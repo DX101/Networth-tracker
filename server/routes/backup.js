@@ -3,14 +3,35 @@ const router = express.Router();
 const fs = require('fs');
 const { google } = require('googleapis');
 const { Dropbox } = require('dropbox');
+const jwt = require('jsonwebtoken');
 const { getDb, DB_PATH } = require('../db');
+const { JWT_SECRET } = require('../middleware/auth');
 
-function getGoogleOAuthClient(userId = 1) {
+function resolveUserId(req) {
+  if (req?.user?.id) return req.user.id;
+  const authHeader = req?.headers?.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+      if (decoded && decoded.id) return decoded.id;
+    } catch (e) {}
+  }
+  return null;
+}
+
+function getGoogleOAuthClient(reqOrUserId) {
   const db = getDb();
-  const settings = db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings WHERE user_id = ?').get(userId)
-    || db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings LIMIT 1').get() || {};
+  const userId = typeof reqOrUserId === 'object' ? resolveUserId(reqOrUserId) : reqOrUserId;
   
-  if (!settings.gdrive_client_id || !settings.gdrive_client_secret) {
+  let settings = null;
+  if (userId) {
+    settings = db.prepare('SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings WHERE user_id = ?').get(userId);
+  }
+  if (!settings || !settings.gdrive_client_id) {
+    settings = db.prepare("SELECT gdrive_client_id, gdrive_client_secret, gdrive_refresh_token FROM settings WHERE gdrive_client_id IS NOT NULL AND gdrive_client_id != '' ORDER BY id DESC LIMIT 1").get();
+  }
+  
+  if (!settings || !settings.gdrive_client_id || !settings.gdrive_client_secret) {
     throw new Error('Google Drive Client ID and Secret are not configured in settings.');
   }
 
@@ -29,7 +50,7 @@ function getGoogleOAuthClient(userId = 1) {
 // Generate Auth URL
 router.get('/auth/google', (req, res) => {
   try {
-    const oauth2Client = getGoogleOAuthClient();
+    const oauth2Client = getGoogleOAuthClient(req);
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
@@ -50,7 +71,7 @@ router.get('/callback/google', async (req, res) => {
     
     if (tokens.refresh_token) {
       const db = getDb();
-      db.prepare('UPDATE settings SET gdrive_refresh_token = ? WHERE id = 1').run(tokens.refresh_token);
+      db.prepare("UPDATE settings SET gdrive_refresh_token = ? WHERE gdrive_client_id IS NOT NULL AND gdrive_client_id != ''").run(tokens.refresh_token);
     }
     
     res.send('<html><body><h2>Google Drive connected successfully!</h2><p>You can close this window and return to the app.</p><script>setTimeout(()=>window.close(), 2000);</script></body></html>');
@@ -62,7 +83,7 @@ router.get('/callback/google', async (req, res) => {
 // Upload
 router.post('/upload/google', async (req, res) => {
   try {
-    const oauth2Client = getGoogleOAuthClient();
+    const oauth2Client = getGoogleOAuthClient(req);
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     
     const fileMetadata = {
@@ -88,7 +109,7 @@ router.post('/upload/google', async (req, res) => {
 // Restore from Google Drive
 router.post('/restore/google', async (req, res) => {
   try {
-    const oauth2Client = getGoogleOAuthClient();
+    const oauth2Client = getGoogleOAuthClient(req);
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
     const listRes = await drive.files.list({
@@ -181,9 +202,16 @@ router.get('/callback/dropbox', async (req, res) => {
 router.post('/upload/dropbox', async (req, res) => {
   try {
     const db = getDb();
-    const settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE id = 1').get();
+    const userId = resolveUserId(req);
+    let settings = null;
+    if (userId) {
+      settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE user_id = ?').get(userId);
+    }
+    if (!settings || !settings.dropbox_refresh_token) {
+      settings = db.prepare("SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE dropbox_refresh_token IS NOT NULL ORDER BY id DESC LIMIT 1").get();
+    }
     
-    if (!settings.dropbox_refresh_token) {
+    if (!settings || !settings.dropbox_refresh_token) {
       throw new Error('Dropbox is not connected.');
     }
 
@@ -213,9 +241,16 @@ router.post('/upload/dropbox', async (req, res) => {
 router.post('/restore/dropbox', async (req, res) => {
   try {
     const db = getDb();
-    const settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE id = 1').get();
+    const userId = resolveUserId(req);
+    let settings = null;
+    if (userId) {
+      settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE user_id = ?').get(userId);
+    }
+    if (!settings || !settings.dropbox_refresh_token) {
+      settings = db.prepare("SELECT dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings WHERE dropbox_refresh_token IS NOT NULL ORDER BY id DESC LIMIT 1").get();
+    }
     
-    if (!settings.dropbox_refresh_token) {
+    if (!settings || !settings.dropbox_refresh_token) {
       throw new Error('Dropbox is not connected.');
     }
 
@@ -253,13 +288,23 @@ router.post('/restore/dropbox', async (req, res) => {
 // Disconnect endpoints
 router.post('/disconnect/google', (req, res) => {
   const db = getDb();
-  db.prepare('UPDATE settings SET gdrive_refresh_token = NULL WHERE id = 1').run();
+  const userId = resolveUserId(req);
+  if (userId) {
+    db.prepare('UPDATE settings SET gdrive_refresh_token = NULL WHERE user_id = ?').run(userId);
+  } else {
+    db.prepare("UPDATE settings SET gdrive_refresh_token = NULL WHERE gdrive_client_id IS NOT NULL").run();
+  }
   res.json({ success: true });
 });
 
 router.post('/disconnect/dropbox', (req, res) => {
   const db = getDb();
-  db.prepare('UPDATE settings SET dropbox_refresh_token = NULL WHERE id = 1').run();
+  const userId = resolveUserId(req);
+  if (userId) {
+    db.prepare('UPDATE settings SET dropbox_refresh_token = NULL WHERE user_id = ?').run(userId);
+  } else {
+    db.prepare("UPDATE settings SET dropbox_refresh_token = NULL WHERE dropbox_client_id IS NOT NULL").run();
+  }
   res.json({ success: true });
 });
 
