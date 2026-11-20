@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for NetWorth Tracker
 # Supports Render, Railway, Fly.io, and standard Docker environments
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -19,13 +19,16 @@ COPY . .
 RUN npm run build:client
 
 # Production runtime image
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV DB_DIR=/data
+
+# Create data directory with write permissions
+RUN mkdir -p /data
 
 # Copy dependencies and build outputs
 COPY package*.json ./
