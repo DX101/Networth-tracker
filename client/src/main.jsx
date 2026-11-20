@@ -10,7 +10,7 @@ const isMobileClient = () => typeof window !== 'undefined' && (
   (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80'))
 );
 
-const DEFAULT_CLOUD_API_URL = import.meta.env.VITE_API_BASE_URL || 'https://networth-tracker-api.onrender.com';
+const DEFAULT_CLOUD_API_URL = import.meta.env.VITE_API_BASE_URL || 'https://networth-tracker-dzfc.onrender.com';
 
 const getApiBase = () => {
   const custom = typeof window !== 'undefined' ? localStorage.getItem('server_url') : null;
@@ -2992,7 +2992,7 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
             <label className="settings-field-label server-url-label" style={{ gridColumn: 'span 2' }}>Server / API URL (For Android Mobile App & Remote Sync)
               <input
                 type="text"
-                placeholder="e.g. http://192.168.1.5:3001 or https://your-server.com (Leave blank for local desktop)"
+                placeholder="e.g. https://networth-tracker-dzfc.onrender.com (Leave blank for local desktop)"
                 value={serverUrl}
                 onChange={e => {
                   setServerUrl(e.target.value);
@@ -3236,6 +3236,75 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                   }}>Reconnect</button>
                 </>
               )}
+            </div>
+          </div>
+
+          <div className="cloud-provider-card" style={{ marginTop: '20px', borderColor: 'rgba(56, 189, 248, 0.3)' }}>
+            <div className="cloud-card-header">
+              <h4 className="cloud-provider-title" style={{ color: '#38bdf8' }}>☁️ Cloud Server & Portable Sync</h4>
+              <span className="cloud-status-badge connected" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', borderColor: '#0ea5e9' }}>
+                ✓ Live on Render
+              </span>
+            </div>
+            <p className="muted" style={{ fontSize: '0.82rem', marginBottom: '14px', lineHeight: '1.5' }}>
+              Your server is live at <a href="https://networth-tracker-dzfc.onrender.com" target="_blank" rel="noopener noreferrer" style={{ color: '#38bdf8', textDecoration: 'underline' }}>https://networth-tracker-dzfc.onrender.com</a>. You can export a portable JSON backup of your entire portfolio, or import it to sync across devices.
+            </p>
+            <div className="cloud-actions-row" style={{ flexWrap: 'wrap', gap: '10px' }}>
+              <button
+                type="button"
+                className="cloud-btn primary"
+                onClick={async () => {
+                  try {
+                    const res = await api('/backup/export-json');
+                    if (res?.success && res?.data) {
+                      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `networth-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      alert('✓ Backup exported successfully!');
+                    } else {
+                      alert('Export failed: ' + (res?.error || 'Unknown error'));
+                    }
+                  } catch (e) {
+                    alert('Export failed: ' + e.message);
+                  }
+                }}
+              >
+                📥 Export Portfolio (JSON)
+              </button>
+              
+              <label className="cloud-btn secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', margin: 0 }}>
+                📤 Import Portfolio (JSON)
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (!window.confirm(`Import portfolio from ${file.name}? This will populate your accounts, investments, and settings.`)) return;
+                    try {
+                      const text = await file.text();
+                      const parsed = JSON.parse(text);
+                      const res = await api('/backup/import-json', {
+                        method: 'POST',
+                        body: JSON.stringify({ data: parsed, overwrite: false })
+                      });
+                      if (res?.success) {
+                        alert('✓ Portfolio imported successfully! Reloading...');
+                        window.location.reload();
+                      } else {
+                        alert('Import failed: ' + (res?.error || 'Unknown error'));
+                      }
+                    } catch (err) {
+                      alert('Import error: ' + err.message);
+                    }
+                  }}
+                />
+              </label>
             </div>
           </div>
         </div>

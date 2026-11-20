@@ -308,4 +308,115 @@ router.post('/disconnect/dropbox', (req, res) => {
   res.json({ success: true });
 });
 
+// Export all tenant financial data as JSON
+router.get('/export-json', (req, res) => {
+  try {
+    const db = getDb();
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const data = {
+      assets: db.prepare('SELECT * FROM assets WHERE user_id = ?').all(userId),
+      liabilities: db.prepare('SELECT * FROM liabilities WHERE user_id = ?').all(userId),
+      investments: db.prepare('SELECT * FROM investments WHERE user_id = ?').all(userId),
+      cashflow: db.prepare('SELECT * FROM cashflow WHERE user_id = ?').all(userId),
+      snapshots: db.prepare('SELECT * FROM snapshots WHERE user_id = ?').all(userId),
+      budgets: db.prepare('SELECT * FROM budgets WHERE user_id = ?').all(userId),
+      budget_expenses: db.prepare('SELECT * FROM budget_expenses WHERE user_id = ?').all(userId),
+      goals: db.prepare('SELECT * FROM goals WHERE user_id = ?').all(userId),
+      goal_contributions: db.prepare('SELECT * FROM goal_contributions WHERE user_id = ?').all(userId),
+      subscriptions: db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').all(userId),
+      insurance: db.prepare('SELECT * FROM insurance WHERE user_id = ?').all(userId),
+      settings: db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId)
+    };
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Import tenant financial data from JSON
+router.post('/import-json', (req, res) => {
+  try {
+    const db = getDb();
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { data, overwrite } = req.body;
+    if (!data) return res.status(400).json({ error: 'Missing data payload' });
+
+    db.transaction(() => {
+      if (overwrite) {
+        db.prepare('DELETE FROM assets WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM liabilities WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM investments WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM cashflow WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM snapshots WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM budgets WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM budget_expenses WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM goals WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM goal_contributions WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM subscriptions WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM insurance WHERE user_id = ?').run(userId);
+      }
+
+      const insertRows = (tableName, rows) => {
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        for (const row of rows) {
+          const rowCopy = { ...row, user_id: userId };
+          delete rowCopy.id;
+          const cols = Object.keys(rowCopy);
+          const placeholders = cols.map(() => '?').join(', ');
+          const sql = `INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`;
+          try {
+            db.prepare(sql).run(...cols.map(c => rowCopy[c]));
+          } catch (e) {
+            console.error(`Error inserting into ${tableName}:`, e.message);
+          }
+        }
+      };
+
+      insertRows('assets', data.assets);
+      insertRows('liabilities', data.liabilities);
+      insertRows('investments', data.investments);
+      insertRows('cashflow', data.cashflow);
+      insertRows('snapshots', data.snapshots);
+      insertRows('budgets', data.budgets);
+      insertRows('budget_expenses', data.budget_expenses);
+      insertRows('goals', data.goals);
+      insertRows('goal_contributions', data.goal_contributions);
+      insertRows('subscriptions', data.subscriptions);
+      insertRows('insurance', data.insurance);
+
+      if (data.settings) {
+        const s = data.settings;
+        try {
+          db.prepare(`
+            UPDATE settings SET
+              currency = COALESCE(?, currency),
+              currency_symbol = COALESCE(?, currency_symbol),
+              date_format = COALESCE(?, date_format),
+              app_name = COALESCE(?, app_name),
+              dashboard_layout = COALESCE(?, dashboard_layout),
+              exchange_rates = COALESCE(?, exchange_rates),
+              gdrive_client_id = COALESCE(?, gdrive_client_id),
+              gdrive_client_secret = COALESCE(?, gdrive_client_secret),
+              gdrive_refresh_token = COALESCE(?, gdrive_refresh_token)
+            WHERE user_id = ?
+          `).run(
+            s.currency, s.currency_symbol, s.date_format, s.app_name,
+            s.dashboard_layout, s.exchange_rates,
+            s.gdrive_client_id, s.gdrive_client_secret, s.gdrive_refresh_token,
+            userId
+          );
+        } catch (e) {}
+      }
+    })();
+
+    res.json({ success: true, message: 'Data imported successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
