@@ -3464,11 +3464,20 @@ function PortfolioTracker({ settings, categories }) {
       }
     } else if (isNps(payload.category)) {
       payload.ticker = '';
-      if (!payload.quantity || Number(payload.quantity) <= 0) {
+      const units = Number(payload.quantity || 1);
+      const enteredInvested = Number(payload.buy_price || 0);
+      const enteredValuation = Number(payload.current_price || enteredInvested);
+
+      if (units > 1 && enteredInvested > units) {
+        payload.quantity = units;
+        payload.buy_price = Number((enteredInvested / units).toFixed(6));
+        payload.current_price = Number((enteredValuation / units).toFixed(6));
+        payload.total_cost_override = enteredInvested;
+      } else {
         payload.quantity = 1;
-      }
-      if (!payload.current_price && payload.buy_price) {
-        payload.current_price = payload.buy_price;
+        payload.buy_price = enteredInvested;
+        payload.current_price = enteredValuation;
+        payload.total_cost_override = enteredInvested;
       }
     }
 
@@ -3504,6 +3513,18 @@ function PortfolioTracker({ settings, categories }) {
       }
     }
   }
+
+  const prepareLotForEditing = (lot) => {
+    if (!lot) return null;
+    if (isNps(lot.category) && Number(lot.quantity) > 1 && Number(lot.buy_price) < 1000) {
+      return {
+        ...lot,
+        buy_price: Number((Number(lot.buy_price || 0) * Number(lot.quantity)).toFixed(2)),
+        current_price: Number((Number(lot.current_price || 0) * Number(lot.quantity)).toFixed(2))
+      };
+    }
+    return lot;
+  };
 
   const grouped = {};
   for (const r of rows) {
@@ -3599,8 +3620,8 @@ function PortfolioTracker({ settings, categories }) {
     },
     {
       name: 'quantity',
-      label: (form) => isBond(form?.category) ? 'Units' : isNps(form?.category) ? 'Units / Quantity (Use 1 for Total Value)' : 'Quantity',
-      placeholder: (form) => isBond(form?.category) ? 'e.g. 10' : isNps(form?.category) ? 'e.g. 1 (or total units)' : 'e.g. 5',
+      label: (form) => isBond(form?.category) ? 'Units' : isNps(form?.category) ? 'Total Accrued Units (Across all Schemes/Tiers)' : 'Quantity',
+      placeholder: (form) => isBond(form?.category) ? 'e.g. 10' : isNps(form?.category) ? 'e.g. 7490.217 (or 1 for total amount)' : 'e.g. 5',
       type: 'number',
       condition: (form) => !isFdorRd(form?.category)
     },
@@ -3613,8 +3634,9 @@ function PortfolioTracker({ settings, categories }) {
           : isBond(form?.category)
             ? `Price per Unit / Face Value (${settings?.currency_symbol || '₹'})`
             : isNps(form?.category)
-              ? `Total Contributed / Invested (${settings?.currency_symbol || '₹'})`
+              ? `Total Contributed / Invested Amount (${settings?.currency_symbol || '₹'})`
               : 'Buy Price',
+      placeholder: (form) => isNps(form?.category) ? 'e.g. 309000' : '',
       type: 'number'
     },
     {
@@ -3624,8 +3646,9 @@ function PortfolioTracker({ settings, categories }) {
         : isBond(form?.category)
           ? `Current Price per Unit (${settings?.currency_symbol || '₹'})`
           : isNps(form?.category)
-            ? `Current Valuation / Corpus (${settings?.currency_symbol || '₹'})`
+            ? `Current Portfolio Valuation / Corpus (${settings?.currency_symbol || '₹'})`
             : 'Current Price',
+      placeholder: (form) => isNps(form?.category) ? 'e.g. 335088.94' : '',
       type: 'number'
     },
     {
@@ -4022,7 +4045,7 @@ function PortfolioTracker({ settings, categories }) {
                               >
                                 💸 Sell
                               </button>
-                              <button className="icon-btn edit" onClick={() => setEditing(lot)}>
+                              <button className="icon-btn edit" onClick={() => setEditing(prepareLotForEditing(lot))}>
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                               </button>
                               <button className="icon-btn delete" onClick={() => remove(lot.id)}>

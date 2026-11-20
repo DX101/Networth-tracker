@@ -111,7 +111,9 @@ router.post('/', async (req, res) => {
     }
 
     const txDate = buy_date || new Date().toISOString().split('T')[0];
-    const totalCost = isFd ? Number(buy_price || 0) : (Number(buy_price || 0) * finalQty);
+    const totalCost = isFd
+      ? Number(buy_price || 0)
+      : (req.body.total_cost_override ? Number(req.body.total_cost_override) : (Number(buy_price || 0) * finalQty));
     const shouldDeduct = Boolean(deduct_from_source && srcId && totalCost > 0);
 
     let insertedId;
