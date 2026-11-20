@@ -3057,9 +3057,21 @@ function Settings({ settings, setSettings, categories, setCategories, onLogout }
                   </span>
                 )}
                 {updateStatus?.status === 'error' && (
-                  <span style={{ color: '#ef4444', fontSize: '12px' }}>
-                    Check failed: {updateStatus.error || 'Server error'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '420px', textAlign: 'right' }}>
+                    <span style={{ color: '#f59e0b', fontSize: '12px', lineHeight: '1.4' }}>
+                      {String(updateStatus.error || '').includes('latest.yml') || String(updateStatus.error || '').includes('404')
+                        ? 'ℹ️ No newer Windows update file found on GitHub. You are on the latest version.'
+                        : `Check status: ${String(updateStatus.error || 'Unable to check for updates').slice(0, 100)}`}
+                    </span>
+                    <a
+                      href="https://github.com/DX101/Networth-tracker/releases"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: '11px', color: '#38bdf8', textDecoration: 'underline' }}
+                    >
+                      View GitHub Releases
+                    </a>
+                  </div>
                 )}
                 <button 
                   className="secondary about-check-btn" 

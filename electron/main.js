@@ -165,10 +165,25 @@ app.whenReady().then(async () => {
           });
         });
 
+        function sanitizeUpdaterError(err) {
+          const raw = String(err?.message || err || '');
+          if (raw.includes('latest.yml') || raw.includes('404')) {
+            return 'No desktop release package (latest.yml) found on GitHub for this release. You are on the latest available build.';
+          }
+          if (raw.includes('ERR_INTERNET_DISCONNECTED') || raw.includes('ENOTFOUND') || raw.includes('ETIMEDOUT')) {
+            return 'Unable to reach update server. Please check your internet connection.';
+          }
+          if (raw.includes('HttpError')) {
+            const first = raw.split('\n')[0];
+            return first.length > 120 ? first.slice(0, 120) + '...' : first;
+          }
+          return raw.length > 150 ? raw.slice(0, 150) + '...' : raw;
+        }
+
         autoUpdater.on('error', (err) => {
           console.error('AutoUpdater Error:', err);
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('update:status', { status: 'error', error: err.message });
+            mainWindow.webContents.send('update:status', { status: 'error', error: sanitizeUpdaterError(err) });
           }
         });
 
@@ -192,7 +207,7 @@ app.whenReady().then(async () => {
           const res = await autoUpdater.checkForUpdates();
           return { status: 'ok', version: res?.updateInfo?.version };
         } catch (err) {
-          return { status: 'error', error: err.message };
+          return { status: 'error', error: sanitizeUpdaterError(err) };
         }
       });
 
