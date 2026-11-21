@@ -70,7 +70,16 @@ async function api(path, options = {}) {
       throw new Error(text.slice(0, 100) || 'Invalid server response');
     }
   }
-  if (!res.ok) throw new Error((data && data.error) || res.statusText || 'Request failed');
+  if (!res.ok) {
+    if (res.status === 401 && !path.includes('/auth/login') && !path.includes('/auth/register')) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.dispatchEvent(new Event('auth:expired'));
+      }
+    }
+    throw new Error((data && data.error) || res.statusText || 'Request failed');
+  }
   return data;
 }
 
@@ -405,54 +414,91 @@ function MiniRow({ label, value, settings, tone = '', suffix = '' }) {
 }
 
 function BreakdownPanel({ type, data, totals, settings }) {
-  if (!type) return null;
-  const income = data.cashflow.filter((x) => x.type === 'income').reduce((s, x) => s + Number(x.amount || 0), 0);
-  const expenses = data.cashflow.filter((x) => x.type === 'expense').reduce((s, x) => s + Number(x.amount || 0), 0);
-  const progress = totals.assets > 0 ? Math.min(100, Math.max(0, (totals.networth / totals.assets) * 100)) : 0;
+  if (!type || !data) return null;
+  const income = (data.cashflow || []).filter((x) => x.type === 'income').reduce((s, x) => s + Number(x.amount || 0), 0);
+  const expenses = (data.cashflow || []).filter((x) => x.type === 'expense').reduce((s, x) => s + Number(x.amount || 0), 0);
+  const progress = (totals?.assets || 0) > 0 ? Math.min(100, Math.max(0, ((totals?.networth || 0) / totals.assets) * 100)) : 0;
   const title = type === 'pnl' ? 'Investment P&L' : type.charAt(0).toUpperCase() + type.slice(1);
 
   if (type === 'networth') {
-    return <div className="breakdown-card elegant-dropdown"><div className="dropdown-head"><h3>Net Worth Breakdown</h3><span>{money(totals.networth, settings)}</span></div><div className="networth-meter"><div style={{ width: `${progress}%` }} /></div><div className="dropdown-grid three"><MiniRow label="Assets + Investments" value={totals.assets} settings={settings} tone="good" /><MiniRow label="Liabilities" value={totals.liabilities} settings={settings} tone="bad" /><MiniRow label="Monthly Net Cash Flow" value={totals.netCashflow} settings={settings} tone={totals.netCashflow >= 0 ? 'good' : 'bad'} /><MiniRow label="Net Worth" value={totals.networth} settings={settings} /></div></div>;
+    return (
+      <div className="breakdown-card elegant-dropdown">
+        <div className="dropdown-head">
+          <h3>Net Worth Breakdown</h3>
+          <span>{money(totals?.networth || 0, settings)}</span>
+        </div>
+        <div className="networth-meter"><div style={{ width: `${progress}%` }} /></div>
+        <div className="dropdown-grid three">
+          <MiniRow label="Assets + Investments" value={totals?.assets || 0} settings={settings} tone="good" />
+          <MiniRow label="Liabilities" value={totals?.liabilities || 0} settings={settings} tone="bad" />
+          <MiniRow label="Monthly Net Cash Flow" value={totals?.netCashflow || 0} settings={settings} tone={(totals?.netCashflow || 0) >= 0 ? 'good' : 'bad'} />
+          <MiniRow label="Net Worth" value={totals?.networth || 0} settings={settings} />
+        </div>
+      </div>
+    );
   }
 
   if (type === 'cashflow') {
-    return <div className="breakdown-card elegant-dropdown"><div className="dropdown-head"><h3>Cash Flow Breakdown</h3><span>{money(income - expenses, settings)}</span></div><div className="dropdown-grid three"><MiniRow label="Income" value={income} settings={settings} tone="good" /><MiniRow label="Expenses" value={expenses} settings={settings} tone="bad" /><MiniRow label="Savings Rate" value={income ? ((income - expenses) / income) * 100 : 0} settings={{ currency_symbol: '' }} /></div><RecentCashFlow rows={data.cashflow.slice(0, 5)} settings={settings} compact /></div>;
+    return (
+      <div className="breakdown-card elegant-dropdown">
+        <div className="dropdown-head">
+          <h3>Cash Flow Breakdown</h3>
+          <span>{money(income - expenses, settings)}</span>
+        </div>
+        <div className="dropdown-grid three">
+          <MiniRow label="Income" value={income} settings={settings} tone="good" />
+          <MiniRow label="Expenses" value={expenses} settings={settings} tone="bad" />
+          <MiniRow label="Savings Rate" value={income ? ((income - expenses) / income) * 100 : 0} settings={{ currency_symbol: '' }} />
+        </div>
+        <RecentCashFlow rows={(data.cashflow || []).slice(0, 5)} settings={settings} compact />
+      </div>
+    );
   }
 
-  const rows = type === 'assets' ? data.assets : type === 'liabilities' ? data.liabilities : data.investments;
+  const rows = type === 'assets' ? (data.assets || []) : type === 'liabilities' ? (data.liabilities || []) : (data.investments || []);
   const breakdownLabel = type === 'pnl' ? 'Profit & Loss' : 'Category Breakdown';
-  const chartData = type === 'investments' ? rows.map(r => ({ name: r.asset_name || r.name, value: investmentCurrentValue(r, settings) })) : type === 'pnl' ? rows.map(r => ({ name: r.asset_name || r.name, value: investmentCurrentValue(r, settings) - investmentInvestedAmount(r, settings) })) : byCategory(rows);
+  const chartData = type === 'investments'
+    ? rows.map(r => ({ name: r.asset_name || r.name, value: investmentCurrentValue(r, settings) }))
+    : type === 'pnl'
+    ? rows.map(r => ({ name: r.asset_name || r.name, value: investmentCurrentValue(r, settings) - investmentInvestedAmount(r, settings) }))
+    : byCategory(rows);
   const pieData = chartData.filter(d => d.value > 0);
 
   return (
     <div className="breakdown-card elegant-dropdown">
       <div className="dropdown-head">
         <h3>{title} Breakdown</h3>
-        <span>{money(type === 'assets' ? totals.assets : type === 'liabilities' ? totals.liabilities : type === 'pnl' ? totals.pnl : totals.investments, settings)}</span>
+        <span>{money(type === 'assets' ? (totals?.assets || 0) : type === 'liabilities' ? (totals?.liabilities || 0) : type === 'pnl' ? (totals?.pnl || 0) : (totals?.investments || 0), settings)}</span>
       </div>
-      <div className="dropdown-grid two" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'center' }}>
-        <div className="dropdown-list">
-          {rows.slice(0, 8).map((item) => (
-            <div className="dropdown-item" key={`${type}-${item.id}`}>
-              <div>
-                <strong>{item.name || item.asset_name || item.category}</strong>
-                <small>{item.category || item.platform || 'Uncategorized'}</small>
+      {rows.length === 0 ? (
+        <p className="muted" style={{ padding: '16px', textAlign: 'center', margin: 0, fontStyle: 'italic' }}>
+          No {title.toLowerCase()} records found yet.
+        </p>
+      ) : (
+        <div className="dropdown-grid two" style={{ gridTemplateColumns: pieData.length > 0 ? '1fr 1fr' : '1fr', alignItems: 'center' }}>
+          <div className="dropdown-list">
+            {rows.slice(0, 8).map((item) => (
+              <div className="dropdown-item" key={`${type}-${item.id}`}>
+                <div>
+                  <strong>{item.name || item.asset_name || item.category}</strong>
+                  <small>{item.category || item.platform || 'Uncategorized'}</small>
+                </div>
+                <span>{money(type === 'pnl' ? investmentCurrentValue(item, settings) - investmentInvestedAmount(item, settings) : type === 'investments' ? investmentCurrentValue(item, settings) : item.current_value, settings)}</span>
               </div>
-              <span>{money(type === 'pnl' ? investmentCurrentValue(item, settings) - investmentInvestedAmount(item, settings) : type === 'investments' ? investmentCurrentValue(item, settings) : item.current_value, settings)}</span>
-            </div>
-          ))}
-        </div>
-        {pieData.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <PieChart width={300} height={200}>
-              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                {pieData.map((entry, i) => <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Tooltip content={<PremiumTooltip settings={settings} />} />
-            </PieChart>
+            ))}
           </div>
-        )}
-      </div>
+          {pieData.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <PieChart width={300} height={200}>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                  {pieData.map((entry, i) => <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip content={<PremiumTooltip settings={settings} />} />
+              </PieChart>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -593,7 +639,11 @@ function formatDate(value, settings) {
 
 function byCategory(rows, key = 'current_value') {
   const grouped = {};
-  rows.forEach((row) => { grouped[row.category] = (grouped[row.category] || 0) + Number(row[key] || 0); });
+  (rows || []).forEach((row) => {
+    if (!row) return;
+    const cat = row.category || 'Uncategorized';
+    grouped[cat] = (grouped[cat] || 0) + Number(row[key] || 0);
+  });
   return Object.entries(grouped).map(([name, value]) => ({ name, value }));
 }
 
@@ -8069,9 +8119,18 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [statementAsset, setStatementAsset] = useState(null);
-    const mobileNavRef = useRef(null);
+  const mobileNavRef = useRef(null);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
+
+  // Auto-redirect to login when authentication expires or becomes invalid
+  useEffect(() => {
+    const handleExpired = () => {
+      setUser(null);
+    };
+    window.addEventListener('auth:expired', handleExpired);
+    return () => window.removeEventListener('auth:expired', handleExpired);
+  }, []);
 
   // Auto-scroll the active tab into the center of the mobile navigation bar
   useEffect(() => {

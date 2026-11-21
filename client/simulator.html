@@ -19,7 +19,6 @@
       flex-direction: column;
       align-items: center;
       overflow-x: hidden;
-      user-select: none;
     }
 
     /* Top control toolbar */
@@ -128,10 +127,11 @@
       flex: 1;
       width: 100%;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       padding: 24px 20px 40px 20px;
-      min-height: calc(100vh - 70px);
+      overflow-y: auto;
+      max-height: calc(100vh - 65px);
     }
 
     /* Phone Mockup Chassis */
@@ -378,17 +378,10 @@
     // Initialize
     updateDimensions();
 
-    // Auto-scale phone if monitor height is smaller than phone height
+    // Keep container unscaled (1:1) so Chromium native dropdowns, select options, and touch coordinates work perfectly without transform bugs
     function autoScale() {
       const container = document.getElementById('phoneContainer');
-      const availableHeight = window.innerHeight - 140;
-      const targetHeight = (isLandscape ? currentWidth : currentHeight) + 40;
-      if (availableHeight < targetHeight) {
-        const scale = Math.max(0.60, Math.min(1, availableHeight / targetHeight));
-        container.style.transform = `scale(${scale})`;
-      } else {
-        container.style.transform = 'scale(1)';
-      }
+      container.style.transform = 'scale(1)';
     }
     window.addEventListener('resize', autoScale);
     autoScale();
