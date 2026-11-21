@@ -224,13 +224,21 @@ function initSchema(db) {
     );
 
     CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE,
       currency TEXT DEFAULT 'INR',
       currency_symbol TEXT DEFAULT '₹',
       date_format TEXT DEFAULT 'DD/MM/YYYY',
       app_name TEXT DEFAULT 'Net Worth Tracker',
+      theme TEXT DEFAULT 'dark',
       dashboard_layout TEXT DEFAULT NULL,
-      exchange_rates TEXT DEFAULT NULL
+      exchange_rates TEXT DEFAULT NULL,
+      gdrive_client_id TEXT DEFAULT NULL,
+      gdrive_client_secret TEXT DEFAULT NULL,
+      gdrive_refresh_token TEXT DEFAULT NULL,
+      dropbox_client_id TEXT DEFAULT NULL,
+      dropbox_client_secret TEXT DEFAULT NULL,
+      dropbox_refresh_token TEXT DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS goals (
@@ -288,9 +296,9 @@ function initSchema(db) {
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
-  const exists = db.prepare('SELECT id FROM settings WHERE id = 1').get();
+  const exists = db.prepare('SELECT id FROM settings LIMIT 1').get();
   if (!exists) {
-    db.prepare('INSERT INTO settings (id) VALUES (1)').run();
+    db.prepare("INSERT INTO settings (currency, currency_symbol, date_format, app_name) VALUES ('INR', '₹', 'DD/MM/YYYY', 'Net Worth Tracker')").run();
   }
 
   ensureBudgetColumns(db);
@@ -325,10 +333,11 @@ function ensureMultiUserSchema(db) {
   // 1. Migrate settings table to remove CHECK(id = 1) if present
   try {
     const settingsSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='settings'").get();
-    const settingsSql = settingsSqlRow?.sql || '';
-    if (settingsSql.includes('CHECK(id = 1)') || settingsSql.includes('CHECK (id = 1)')) {
+    const settingsSql = (settingsSqlRow?.sql || '').toLowerCase();
+    if (settingsSql.includes('check') && (settingsSql.includes('id = 1') || settingsSql.includes('id=1') || settingsSql.includes('id =1') || settingsSql.includes('id= 1'))) {
+      const rows = db.prepare("SELECT * FROM settings").all();
       db.exec(`
-        CREATE TABLE IF NOT EXISTS settings_new (
+        CREATE TABLE settings_clean (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER UNIQUE,
           currency TEXT DEFAULT 'INR',
@@ -345,11 +354,38 @@ function ensureMultiUserSchema(db) {
           dropbox_client_secret TEXT DEFAULT NULL,
           dropbox_refresh_token TEXT DEFAULT NULL
         );
-        INSERT INTO settings_new (id, user_id, currency, currency_symbol, date_format, app_name, theme, dashboard_layout, exchange_rates, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token)
-          SELECT 1, ${defaultUserId}, currency, currency_symbol, date_format, app_name, theme, dashboard_layout, exchange_rates, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token FROM settings;
-        DROP TABLE settings;
-        ALTER TABLE settings_new RENAME TO settings;
       `);
+
+      for (const row of rows) {
+        db.prepare(`
+          INSERT INTO settings_clean (
+            user_id, currency, currency_symbol, date_format, app_name, theme,
+            dashboard_layout, exchange_rates, gdrive_client_id, gdrive_client_secret,
+            gdrive_refresh_token, dropbox_client_id, dropbox_client_secret, dropbox_refresh_token
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          row.user_id || defaultUserId,
+          row.currency || 'INR',
+          row.currency_symbol || '₹',
+          row.date_format || 'DD/MM/YYYY',
+          row.app_name || 'Net Worth Tracker',
+          row.theme || 'dark',
+          row.dashboard_layout || null,
+          row.exchange_rates || null,
+          row.gdrive_client_id || null,
+          row.gdrive_client_secret || null,
+          row.gdrive_refresh_token || null,
+          row.dropbox_client_id || null,
+          row.dropbox_client_secret || null,
+          row.dropbox_refresh_token || null
+        );
+      }
+
+      db.exec(`
+        DROP TABLE settings;
+        ALTER TABLE settings_clean RENAME TO settings;
+      `);
+      console.log('Successfully migrated settings table: removed CHECK(id = 1)');
     }
   } catch (err) {
     console.warn('Settings table migration note:', err.message);

@@ -18,11 +18,17 @@ router.get('/', async (req, res) => {
     let settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
     
     if (!settings) {
-      db.prepare(`
-        INSERT INTO settings (user_id, currency, currency_symbol, date_format, app_name)
-        VALUES (?, 'INR', '₹', 'DD/MM/YYYY', 'Net Worth Tracker')
-      `).run(userId);
-      settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+      const unassigned = db.prepare('SELECT id FROM settings WHERE user_id IS NULL ORDER BY id ASC LIMIT 1').get();
+      if (unassigned) {
+        db.prepare('UPDATE settings SET user_id = ? WHERE id = ?').run(userId, unassigned.id);
+        settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+      } else {
+        db.prepare(`
+          INSERT INTO settings (user_id, currency, currency_symbol, date_format, app_name)
+          VALUES (?, 'INR', '₹', 'DD/MM/YYYY', 'Net Worth Tracker')
+        `).run(userId);
+        settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+      }
     }
     
     // Auto-populate exchange rates if null or empty
@@ -122,8 +128,14 @@ router.put('/', (req, res) => {
     
     let existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
     if (!existing) {
-      db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(userId);
-      existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) || {};
+      const unassigned = db.prepare('SELECT id FROM settings WHERE user_id IS NULL ORDER BY id ASC LIMIT 1').get();
+      if (unassigned) {
+        db.prepare('UPDATE settings SET user_id = ? WHERE id = ?').run(userId, unassigned.id);
+        existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId);
+      } else {
+        db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(userId);
+        existing = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) || {};
+      }
     }
 
     const stmt = db.prepare(

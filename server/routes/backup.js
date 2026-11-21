@@ -35,10 +35,21 @@ function getGoogleOAuthClient(reqOrUserId) {
     throw new Error('Google Drive Client ID and Secret are not configured in settings.');
   }
 
+  let redirectUri = 'http://127.0.0.1:3001/api/backup/callback/google';
+  if (typeof reqOrUserId === 'object' && reqOrUserId?.get) {
+    const proto = reqOrUserId.headers['x-forwarded-proto'] || reqOrUserId.protocol || 'http';
+    const host = reqOrUserId.headers['x-forwarded-host'] || reqOrUserId.get('host');
+    if (host) {
+      redirectUri = `${proto}://${host}/api/backup/callback/google`;
+    }
+  } else if (process.env.APP_URL) {
+    redirectUri = `${process.env.APP_URL.replace(/\/+$/, '')}/api/backup/callback/google`;
+  }
+
   const oauth2Client = new google.auth.OAuth2(
     settings.gdrive_client_id,
     settings.gdrive_client_secret,
-    'http://127.0.0.1:3001/api/backup/callback/google'
+    redirectUri
   );
 
   if (settings.gdrive_refresh_token) {
@@ -66,12 +77,17 @@ router.get('/auth/google', (req, res) => {
 router.get('/callback/google', async (req, res) => {
   const { code } = req.query;
   try {
-    const oauth2Client = getGoogleOAuthClient();
+    const oauth2Client = getGoogleOAuthClient(req);
     const { tokens } = await oauth2Client.getToken(code);
     
     if (tokens.refresh_token) {
       const db = getDb();
-      db.prepare("UPDATE settings SET gdrive_refresh_token = ? WHERE gdrive_client_id IS NOT NULL AND gdrive_client_id != ''").run(tokens.refresh_token);
+      const userId = resolveUserId(req);
+      if (userId) {
+        db.prepare("UPDATE settings SET gdrive_refresh_token = ? WHERE user_id = ?").run(tokens.refresh_token, userId);
+      } else {
+        db.prepare("UPDATE settings SET gdrive_refresh_token = ? WHERE gdrive_client_id IS NOT NULL AND gdrive_client_id != ''").run(tokens.refresh_token);
+      }
     }
     
     res.send('<html><body><h2>Google Drive connected successfully!</h2><p>You can close this window and return to the app.</p><script>setTimeout(()=>window.close(), 2000);</script></body></html>');
@@ -160,14 +176,25 @@ router.post('/restore/google', async (req, res) => {
 router.get('/auth/dropbox', (req, res) => {
   try {
     const db = getDb();
-    const settings = db.prepare('SELECT dropbox_client_id FROM settings WHERE id = 1').get();
+    const userId = resolveUserId(req);
+    let settings = userId ? db.prepare('SELECT dropbox_client_id FROM settings WHERE user_id = ?').get(userId) : null;
+    if (!settings || !settings.dropbox_client_id) {
+      settings = db.prepare("SELECT dropbox_client_id FROM settings WHERE dropbox_client_id IS NOT NULL AND dropbox_client_id != '' ORDER BY id DESC LIMIT 1").get() || {};
+    }
     
     if (!settings.dropbox_client_id) {
       throw new Error('Dropbox Client ID is not configured.');
     }
 
+    let redirectUri = 'http://127.0.0.1:3001/api/backup/callback/dropbox';
+    if (req.get) {
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      if (host) redirectUri = `${proto}://${host}/api/backup/callback/dropbox`;
+    }
+
     const dbx = new Dropbox({ clientId: settings.dropbox_client_id });
-    const authUrl = dbx.auth.getAuthenticationUrl('http://127.0.0.1:3001/api/backup/callback/dropbox', null, 'code', 'offline', null, 'none', false);
+    const authUrl = dbx.auth.getAuthenticationUrl(redirectUri, null, 'code', 'offline', null, 'none', false);
     
     authUrl.then((url) => {
       res.json({ url });
@@ -183,14 +210,29 @@ router.get('/callback/dropbox', async (req, res) => {
   const { code } = req.query;
   try {
     const db = getDb();
-    const settings = db.prepare('SELECT dropbox_client_id, dropbox_client_secret FROM settings WHERE id = 1').get();
+    const userId = resolveUserId(req);
+    let settings = userId ? db.prepare('SELECT dropbox_client_id, dropbox_client_secret FROM settings WHERE user_id = ?').get(userId) : null;
+    if (!settings || !settings.dropbox_client_id) {
+      settings = db.prepare("SELECT dropbox_client_id, dropbox_client_secret FROM settings WHERE dropbox_client_id IS NOT NULL AND dropbox_client_id != '' ORDER BY id DESC LIMIT 1").get() || {};
+    }
+
+    let redirectUri = 'http://127.0.0.1:3001/api/backup/callback/dropbox';
+    if (req.get) {
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      if (host) redirectUri = `${proto}://${host}/api/backup/callback/dropbox`;
+    }
+
     const dbxAuth = new Dropbox({ clientId: settings.dropbox_client_id, clientSecret: settings.dropbox_client_secret }).auth;
-    
-    const response = await dbxAuth.getAccessTokenFromCode('http://127.0.0.1:3001/api/backup/callback/dropbox', code);
+    const response = await dbxAuth.getAccessTokenFromCode(redirectUri, code);
     const refresh_token = response.result.refresh_token;
     
     if (refresh_token) {
-      db.prepare('UPDATE settings SET dropbox_refresh_token = ? WHERE id = 1').run(refresh_token);
+      if (userId) {
+        db.prepare('UPDATE settings SET dropbox_refresh_token = ? WHERE user_id = ?').run(refresh_token, userId);
+      } else {
+        db.prepare("UPDATE settings SET dropbox_refresh_token = ? WHERE dropbox_client_id IS NOT NULL").run(refresh_token);
+      }
     }
     
     res.send('<html><body><h2>Dropbox connected successfully!</h2><p>You can close this window and return to the app.</p><script>setTimeout(()=>window.close(), 2000);</script></body></html>');
