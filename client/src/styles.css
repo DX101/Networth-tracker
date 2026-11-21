@@ -2444,8 +2444,8 @@ button:disabled {
     top: 0;
     left: 0;
     right: 0;
-    min-height: 54px;
-    padding: max(12px, env(safe-area-inset-top, 0px)) 16px 10px 16px;
+    min-height: 56px;
+    padding: max(28px, env(safe-area-inset-top, 28px)) 16px 12px 16px;
     box-sizing: border-box;
     background: rgba(15, 23, 42, 0.94);
     backdrop-filter: blur(18px);
@@ -2530,7 +2530,7 @@ button:disabled {
   }
 
   .page {
-    padding: 14px 14px calc(96px + env(safe-area-inset-bottom, 0px)) 14px !important;
+    padding: 14px 14px calc(96px + env(safe-area-inset-bottom, 16px)) 14px !important;
   }
 
   /* Page Head & Overview Head on mobile */
@@ -3000,6 +3000,7 @@ button:disabled {
     max-width: 380px;
     padding: 20px;
     border-radius: 20px;
+    box-sizing: border-box;
   }
 
   .quick-add-form {
@@ -4189,7 +4190,7 @@ button:disabled {
     background: rgba(11, 17, 32, 0.96);
     backdrop-filter: blur(16px);
     border-top: 1px solid rgba(51, 65, 85, 0.6);
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     box-sizing: border-box;
   }
 
