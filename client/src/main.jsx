@@ -63,8 +63,9 @@ async function api(path, options = {}) {
     try {
       data = JSON.parse(text);
     } catch (parseErr) {
-      if (text.trim().startsWith('<') || text.includes('<!doctype') || text.includes('<html')) {
-        throw new Error(`Cannot reach NetWorth API server. If on mobile, please tap "Configure Server URL" below and connect to your PC's IP.`);
+      const lower = text.toLowerCase();
+      if (text.trim().startsWith('<') || lower.includes('<!doctype') || lower.includes('<html')) {
+        throw new Error(`Cannot reach NetWorth API server. If on mobile, tap 'Configure Server URL' below and ensure it is set to https://networth-tracker-dzfc.onrender.com. (If the free server was asleep, please wait 15 seconds for it to wake up).`);
       }
       throw new Error(text.slice(0, 100) || 'Invalid server response');
     }
@@ -635,7 +636,7 @@ function Auth({ onLogin }) {
         msg.includes('Unexpected token') ||
         msg.includes('not valid JSON')
       ) {
-        setError("Cannot reach backend server. If using the mobile app, tap 'Configure Server URL' below and enter your PC's IP address (e.g. http://192.168.0.124:3001).");
+        setError("Cannot reach backend server. Tap 'Configure Server URL' below and tap '☁️ Connect to Cloud Server' (https://networth-tracker-dzfc.onrender.com). If the server was sleeping, please wait a few seconds and try again.");
         setShowServerConfig(true);
       } else {
         setError(err.message);
