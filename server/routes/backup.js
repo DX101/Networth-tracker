@@ -47,8 +47,8 @@ function getGoogleOAuthClient(reqOrUserId) {
   }
 
   const oauth2Client = new google.auth.OAuth2(
-    settings.gdrive_client_id,
-    settings.gdrive_client_secret,
+    settings.gdrive_client_id?.trim(),
+    settings.gdrive_client_secret?.trim(),
     redirectUri
   );
 

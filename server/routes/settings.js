@@ -148,12 +148,12 @@ router.put('/', (req, res) => {
       app_name ?? existing.app_name,
       dashboard_layout ?? existing.dashboard_layout,
       exchange_rates ?? existing.exchange_rates,
-      gdrive_client_id !== undefined ? gdrive_client_id : existing.gdrive_client_id,
-      gdrive_client_secret !== undefined ? gdrive_client_secret : existing.gdrive_client_secret,
-      gdrive_refresh_token !== undefined ? gdrive_refresh_token : existing.gdrive_refresh_token,
-      dropbox_client_id !== undefined ? dropbox_client_id : existing.dropbox_client_id,
-      dropbox_client_secret !== undefined ? dropbox_client_secret : existing.dropbox_client_secret,
-      dropbox_refresh_token !== undefined ? dropbox_refresh_token : existing.dropbox_refresh_token,
+      gdrive_client_id !== undefined ? (typeof gdrive_client_id === 'string' ? gdrive_client_id.trim() : gdrive_client_id) : existing.gdrive_client_id,
+      gdrive_client_secret !== undefined ? (typeof gdrive_client_secret === 'string' ? gdrive_client_secret.trim() : gdrive_client_secret) : existing.gdrive_client_secret,
+      gdrive_refresh_token !== undefined ? (typeof gdrive_refresh_token === 'string' ? gdrive_refresh_token.trim() : gdrive_refresh_token) : existing.gdrive_refresh_token,
+      dropbox_client_id !== undefined ? (typeof dropbox_client_id === 'string' ? dropbox_client_id.trim() : dropbox_client_id) : existing.dropbox_client_id,
+      dropbox_client_secret !== undefined ? (typeof dropbox_client_secret === 'string' ? dropbox_client_secret.trim() : dropbox_client_secret) : existing.dropbox_client_secret,
+      dropbox_refresh_token !== undefined ? (typeof dropbox_refresh_token === 'string' ? dropbox_refresh_token.trim() : dropbox_refresh_token) : existing.dropbox_refresh_token,
       userId
     );
 
